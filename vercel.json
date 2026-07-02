@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/fundgz/:code",
+      "destination": "https://fundgz.1234567.com.cn/js/:code.js"
+    },
+    {
+      "source": "/api/fundlist",
+      "destination": "https://fund.eastmoney.com/js/fundcode_search.js"
+    },
+    {
+      "source": "/api/nav/:code",
+      "destination": "https://fund.eastmoney.com/pingzhongdata/:code.js"
+    }
+  ]
+}

@@ -1,0 +1,1740 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="基金估值">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f5f5f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a2e" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+<title>基金估值</title>
+<style>
+/* ========== CSS Variables & Reset ========== */
+:root {
+  --bg: #f0f2f5;
+  --card-bg: #ffffff;
+  --text: #1a1a1a;
+  --text-secondary: #8c8c8c;
+  --text-tertiary: #bfbfbf;
+  --up-color: #cf1322;
+  --up-bg: #fff1f0;
+  --down-color: #389e0d;
+  --down-bg: #f6ffed;
+  --primary: #1677ff;
+  --primary-bg: #e6f4ff;
+  --border: #f0f0f0;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --header-bg: rgba(255,255,255,0.85);
+  --safe-bottom: env(safe-area-inset-bottom, 16px);
+  --transition: 0.2s ease;
+}
+.dark {
+  --bg: #0d0d1a;
+  --card-bg: #1a1a2e;
+  --text: #e8e8e8;
+  --text-secondary: #8c8c8c;
+  --text-tertiary: #5a5a5a;
+  --up-color: #ff4d4f;
+  --up-bg: rgba(255,77,79,0.12);
+  --down-color: #52c41a;
+  --down-bg: rgba(82,196,26,0.12);
+  --primary: #4096ff;
+  --primary-bg: rgba(64,150,255,0.12);
+  --border: #252540;
+  --shadow: 0 1px 3px rgba(0,0,0,0.2);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,0.3);
+  --header-bg: rgba(13,13,26,0.9);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  transition: background var(--transition), color var(--transition);
+  min-height: 100vh;
+  padding-bottom: calc(80px + var(--safe-bottom));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+/* ========== Header ========== */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--header-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.header-left { display: flex; align-items: center; gap: 8px; }
+.header-title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+.header-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.header-status.open { background: var(--up-bg); color: var(--up-color); }
+.header-status.closed { background: var(--down-bg); color: var(--down-color); }
+.header-status.holiday { background: var(--border); color: var(--text-secondary); }
+.header-actions { display: flex; gap: 4px; }
+.icon-btn {
+  width: 36px; height: 36px;
+  border: none; background: transparent;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--transition);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+.icon-btn:active { background: var(--border); }
+/* ========== Fund List ========== */
+.fund-list { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
+.fund-card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: transform 0.15s ease, box-shadow var(--transition);
+  position: relative;
+}
+.fund-card:active { transform: scale(0.985); }
+.fund-card-main {
+  padding: 14px 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.fund-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.fund-name {
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1;
+  margin-right: 8px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.fund-code { font-size: 11px; color: var(--text-secondary); font-weight: 400; }
+.fund-card-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.fund-card-actions .icon-btn { width: 28px; height: 28px; font-size: 14px; }
+.fund-valuation {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.fund-gsz {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1;
+}
+.fund-change {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.fund-change.up { color: #fff; background: var(--up-color); }
+.fund-change.down { color: #fff; background: var(--down-color); }
+.fund-change.flat { color: var(--text-secondary); background: var(--border); }
+.fund-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.fund-meta .dwjz { color: var(--text-tertiary); }
+.fund-meta .gztime { color: var(--text-tertiary); font-size: 11px; }
+/* ========== Fund Card Expanded ========== */
+.fund-card-detail {
+  display: none;
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  background: var(--bg);
+}
+.fund-card.expanded .fund-card-detail { display: block; }
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.detail-label { color: var(--text-secondary); }
+.detail-value { font-weight: 500; }
+.detail-value.up { color: var(--up-color); }
+.detail-value.down { color: var(--down-color); }
+/* ========== Settings Buttons ========== */
+.detail-save-btn {
+  width: 100%;
+  padding: 8px;
+  margin-top: 6px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity var(--transition);
+}
+.detail-save-btn:active { opacity: 0.8; }
+/* ========== Empty State ========== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+.empty-icon { font-size: 64px; margin-bottom: 16px; }
+.empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.empty-desc { font-size: 13px; line-height: 1.6; }
+/* ========== FAB ========== */
+.fab {
+  position: fixed;
+  bottom: calc(24px + var(--safe-bottom));
+  right: 20px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 28px;
+  border: none;
+  box-shadow: 0 4px 16px rgba(22,119,255,0.35);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 90;
+  transition: transform 0.15s ease, box-shadow var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.fab:active { transform: scale(0.9); }
+.fab-left {
+  position: fixed;
+  bottom: calc(24px + var(--safe-bottom));
+  left: 20px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 20px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 89;
+  transition: transform 0.15s ease, background var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.fab-left:active { transform: scale(0.9); background: var(--border); }
+/* ========== Bottom Toolbar ========== */
+.toolbar {
+  position: fixed;
+  bottom: 0;
+  left: 0; right: 0;
+  background: var(--header-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border);
+  padding: 8px 16px calc(8px + var(--safe-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 100;
+}
+.toolbar-info { font-size: 12px; color: var(--text-secondary); }
+.toolbar-actions { display: flex; gap: 8px; }
+.toolbar-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.toolbar-btn:active { background: var(--border); }
+.toolbar-btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+/* ========== Modal ========== */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.modal-sheet {
+  background: var(--card-bg);
+  border-radius: 16px 16px 0 0;
+  width: 100%;
+  max-width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.25s ease;
+  padding-bottom: var(--safe-bottom);
+}
+.modal-handle {
+  width: 36px; height: 4px;
+  background: var(--text-tertiary);
+  border-radius: 2px;
+  margin: 10px auto 0;
+}
+.modal-header {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+.modal-title { font-size: 16px; font-weight: 600; }
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+/* ========== Search Input ========== */
+.search-box {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.search-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  outline: none;
+  transition: border var(--transition);
+}
+.search-input:focus { border-color: var(--primary); }
+.search-input::placeholder { color: var(--text-tertiary); }
+.search-btn {
+  padding: 10px 18px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.search-btn:active { opacity: 0.8; }
+.search-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.search-results {
+  max-height: 50vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.search-result-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.search-result-item:active { opacity: 0.6; }
+.search-result-name { font-size: 14px; font-weight: 500; flex: 1; }
+.search-result-code { font-size: 12px; color: var(--text-secondary); margin-left: 8px; }
+.search-result-add {
+  padding: 4px 12px;
+  border: 1px solid var(--primary);
+  background: transparent;
+  color: var(--primary);
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+.search-result-add:active { background: var(--primary-bg); }
+.search-result-add.added { border-color: var(--text-tertiary); color: var(--text-tertiary); }
+/* ========== Toast ========== */
+.toast-container {
+  position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+  z-index: 300;
+  display: flex; flex-direction: column; gap: 6px;
+  pointer-events: none;
+}
+.toast {
+  padding: 10px 20px;
+  background: rgba(0,0,0,0.78);
+  color: #fff;
+  border-radius: 20px;
+  font-size: 13px;
+  white-space: nowrap;
+  animation: toastIn 0.25s ease, toastOut 0.25s ease 1.5s forwards;
+  text-align: center;
+  pointer-events: auto;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
+/* ========== Settings Panel ========== */
+.settings-section { margin-bottom: 20px; }
+.settings-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-label { font-size: 14px; }
+.settings-desc { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+/* Toggle Switch */
+.toggle {
+  width: 48px; height: 28px;
+  background: var(--text-tertiary);
+  border-radius: 14px;
+  position: relative;
+  cursor: pointer;
+  transition: background var(--transition);
+  flex-shrink: 0;
+}
+.toggle.on { background: var(--primary); }
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 22px; height: 22px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform var(--transition);
+}
+.toggle.on::after { transform: translateX(20px); }
+/* ========== Loading skeleton ========== */
+.skeleton {
+  background: linear-gradient(90deg, var(--border) 25%, transparent 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.skeleton-text { height: 14px; margin: 6px 0; }
+.skeleton-text.short { width: 60%; }
+.skeleton-num { height: 28px; width: 40%; margin: 4px 0; }
+/* ========== Scrollbar ========== */
+::-webkit-scrollbar { width: 0; height: 0; }
+/* ========== Highlight animation ========== */
+@keyframes highlight { 0% { background: var(--primary-bg); } 100% { background: transparent; } }
+.fund-card.highlight { animation: highlight 1s ease; }
+/* ========== Responsive tweaks ========== */
+@media (min-width: 480px) {
+  body { max-width: 480px; margin: 0 auto; }
+  .fab { right: calc(50% - 220px); }
+  .fab-left { left: calc(50% - 220px); }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-left">
+    <span style="font-size:24px">📈</span>
+    <h1 class="header-title">基金估值</h1>
+    <span class="header-status closed" id="marketStatus">休市</span>
+  </div>
+  <div class="header-actions">
+    <button class="icon-btn" id="btnTheme" title="切换主题" aria-label="切换主题">🌓</button>
+    <button class="icon-btn" id="btnSettings" title="设置" aria-label="设置">⚙️</button>
+  </div>
+</header>
+
+
+<!-- Fund List -->
+<div class="fund-list" id="fundList"></div>
+
+<!-- Empty State -->
+<div class="empty-state" id="emptyState">
+  <div class="empty-icon">💰</div>
+  <div class="empty-title">还没有添加基金</div>
+  <div class="empty-desc">点击右下角 + 按钮<br>搜索并添加你关注的基金</div>
+</div>
+
+<!-- Loading State -->
+<div class="fund-list" id="loadingState" style="display:none">
+  <div class="fund-card"><div class="fund-card-main">
+    <div class="skeleton skeleton-text"></div>
+    <div class="skeleton skeleton-num"></div>
+    <div class="skeleton skeleton-text short"></div>
+  </div></div>
+</div>
+
+<!-- FAB: 排序 -->
+<button class="fab-left" id="btnSort" aria-label="排序" title="切换排序">📊</button>
+
+<!-- FAB: 添加基金 -->
+<button class="fab" id="btnAdd" aria-label="添加基金">+</button>
+
+<!-- Bottom Toolbar -->
+<div class="toolbar">
+  <div class="toolbar-info">
+    <span id="updateTime">等待刷新…</span>
+  </div>
+  <div class="toolbar-actions">
+  </div>
+</div>
+
+<!-- Add Fund Modal -->
+<div class="modal-overlay" id="addModal" style="display:none">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <span class="modal-title">添加基金</span>
+      <button class="icon-btn" id="btnCloseAdd" style="font-size:20px">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="search-box">
+        <input type="text" class="search-input" id="searchInput"
+               placeholder="输入基金代码或名称搜索…"
+               autocomplete="off" inputmode="search">
+        <button class="search-btn" id="btnSearch">搜索</button>
+      </div>
+      <div class="search-hint">💡 支持基金代码、名称、拼音搜索</div>
+      <div class="search-results" id="searchResults"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal" style="display:none">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <span class="modal-title">设置</span>
+      <button class="icon-btn" id="btnCloseSettings" style="font-size:20px">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-section">
+        <div class="settings-section-title">外观</div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">深色模式</div>
+            <div class="settings-desc">切换暗色/亮色主题</div>
+          </div>
+          <div class="toggle" id="toggleTheme"></div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">数据</div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">自动刷新</div>
+            <div class="settings-desc">交易时段每30秒自动刷新估值</div>
+          </div>
+          <div class="toggle on" id="toggleAutoRefresh"></div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">估值代理</div>
+            <div class="settings-desc">如遇跨域问题，可设代理地址</div>
+          </div>
+        </div>
+        <div style="margin-top:8px">
+          <input type="text" class="search-input" id="proxyUrl"
+                 placeholder="留空使用直连（JSONP方式）"
+                 style="width:100%;font-size:13px">
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">数据管理</div>
+        <button class="detail-save-btn" id="btnExport" style="background:var(--primary)">📤 导出基金配置</button>
+        <div style="height:8px"></div>
+        <button class="detail-save-btn" id="btnImport" style="background:var(--text-secondary)">📥 导入基金配置</button>
+        <input type="file" id="importFile" accept=".json" style="display:none">
+        <div style="height:8px"></div>
+        <button class="detail-save-btn" id="btnClearAll" style="background:#ff4d4f">🗑 清除所有数据</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Hidden file input for import -->
+<input type="file" id="importFileInput" accept=".json" style="display:none">
+
+<script>
+/* ============================================================================
+ * 基金估值 PWA — 手机端自选基金实时估值查看工具
+ * 数据来源: 天天基金 (fundgz.1234567.com.cn)
+ * ============================================================================ */
+
+// ======================== 常量与配置 ========================
+const STORAGE_KEY = 'fund_app_data';
+const FUND_LIST_CACHE_KEY = 'fund_list_cache';
+const FUND_LIST_CACHE_TIME = 'fund_list_cache_time';
+const THEME_KEY = 'fund_app_theme';
+const SETTINGS_KEY = 'fund_app_settings';
+
+const FUNDGZ_BASE = 'https://fundgz.1234567.com.cn/js';
+const FUNDCODE_URL = 'https://fund.eastmoney.com/js/fundcode_search.js';
+
+// 交易时间判断 (北京时间)
+const MARKET_OPEN_HOUR = 9;
+const MARKET_OPEN_MIN = 30;
+const MARKET_CLOSE_HOUR = 15;
+const LUNCH_START_HOUR = 11;
+const LUNCH_START_MIN = 30;
+const LUNCH_END_HOUR = 13;
+
+// ======================== 工具函数 ========================
+function $(sel) { return document.querySelector(sel); }
+function $$(sel) { return document.querySelectorAll(sel); }
+
+function fmtMoney(n) {
+  if (n == null || isNaN(n)) return '--';
+  return Number(n).toFixed(2);
+}
+
+function fmtPercent(n) {
+  if (n == null || isNaN(n)) return '--';
+  const v = Number(n);
+  const sign = v > 0 ? '+' : '';
+  return sign + v.toFixed(2) + '%';
+}
+
+function fmtNum(n, decimals) {
+  if (n == null || isNaN(n)) return '--';
+  return Number(n).toFixed(decimals || 4);
+}
+
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  $('#toastContainer').appendChild(el);
+  setTimeout(() => el.remove(), 2000);
+}
+
+// ======================== 存储管理 ========================
+const Storage = {
+  getFunds() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  },
+
+  saveFunds(funds) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(funds));
+  },
+
+  addFund(fund) {
+    const funds = this.getFunds();
+    if (funds.find(f => f.code === fund.code)) return false;
+    fund.addedAt = Date.now();
+    funds.push(fund);
+    this.saveFunds(funds);
+    return true;
+  },
+
+  removeFund(code) {
+    const funds = this.getFunds().filter(f => f.code !== code);
+    this.saveFunds(funds);
+  },
+
+  updateFund(code, updates) {
+    const funds = this.getFunds();
+    const idx = funds.findIndex(f => f.code === code);
+    if (idx === -1) return;
+    Object.assign(funds[idx], updates);
+    this.saveFunds(funds);
+  },
+
+  getSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      return raw ? JSON.parse(raw) : { autoRefresh: true, proxyUrl: '' };
+    } catch (e) { return { autoRefresh: true, proxyUrl: '' }; }
+  },
+
+  saveSettings(s) {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  },
+
+  getTheme() {
+    return localStorage.getItem(THEME_KEY) || 'auto';
+  },
+
+  setTheme(t) {
+    localStorage.setItem(THEME_KEY, t);
+  },
+
+  getFundListCache() {
+    try {
+      const raw = localStorage.getItem(FUND_LIST_CACHE_KEY);
+      const time = localStorage.getItem(FUND_LIST_CACHE_TIME);
+      if (!raw || !time) return null;
+      // 缓存7天
+      if (Date.now() - Number(time) > 7 * 24 * 3600 * 1000) return null;
+      return JSON.parse(raw);
+    } catch (e) { return null; }
+  },
+
+  setFundListCache(list) {
+    try {
+      localStorage.setItem(FUND_LIST_CACHE_KEY, JSON.stringify(list));
+      localStorage.setItem(FUND_LIST_CACHE_TIME, String(Date.now()));
+    } catch (e) { /* 可能超容量 */ }
+  }
+};
+
+// ======================== 主题管理 ========================
+const Theme = {
+  init() {
+    const saved = Storage.getTheme();
+    if (saved === 'dark') {
+      document.body.classList.add('dark');
+    } else if (saved === 'light') {
+      document.body.classList.remove('dark');
+    } else {
+      // auto: follow system preference
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark');
+      }
+    }
+    this.updateToggle();
+  },
+
+  toggle() {
+    const isDark = document.body.classList.contains('dark');
+    if (isDark) {
+      document.body.classList.remove('dark');
+      Storage.setTheme('light');
+    } else {
+      document.body.classList.add('dark');
+      Storage.setTheme('dark');
+    }
+    this.updateToggle();
+  },
+
+  updateToggle() {
+    const isDark = document.body.classList.contains('dark');
+    $('#toggleTheme').className = 'toggle' + (isDark ? ' on' : '');
+  }
+};
+
+// ======================== 交易时间判断 ========================
+const Market = {
+  isTradingDay() {
+    const now = new Date();
+    const day = now.getDay();
+    // 周末
+    if (day === 0 || day === 6) return false;
+    // TODO: 接入节假日API判断，现在先做基本判断
+    return true;
+  },
+
+  isTradingTime() {
+    if (!this.isTradingDay()) return false;
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+    const total = h * 60 + m;
+    const open = MARKET_OPEN_HOUR * 60 + MARKET_OPEN_MIN;
+    const close = MARKET_CLOSE_HOUR * 60;
+    const lunchStart = LUNCH_START_HOUR * 60 + LUNCH_START_MIN;
+    const lunchEnd = LUNCH_END_HOUR * 60;
+    // 上午交易时段: 9:30-11:30
+    if (total >= open && total < lunchStart) return true;
+    // 下午交易时段: 13:00-15:00
+    if (total >= lunchEnd && total < close) return true;
+    return false;
+  },
+
+  isBeforeOpen() {
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+    return (h < MARKET_OPEN_HOUR || (h === MARKET_OPEN_HOUR && m < MARKET_OPEN_MIN));
+  },
+
+  isLunchBreak() {
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+    const total = h * 60 + m;
+    const lunchStart = LUNCH_START_HOUR * 60 + LUNCH_START_MIN;
+    const lunchEnd = LUNCH_END_HOUR * 60;
+    return total >= lunchStart && total < lunchEnd;
+  },
+
+  getStatusText() {
+    if (this.isTradingTime()) {
+      if (this.isLunchBreak()) return '午休';
+      return '交易中';
+    }
+    if (!this.isTradingDay()) return '休市';
+    if (this.isBeforeOpen()) return '盘前';
+    return '已收盘';
+  },
+
+  getStatusClass() {
+    if (this.isTradingTime() && !this.isLunchBreak()) return 'open';
+    if (this.isTradingDay()) return 'closed';
+    return 'holiday';
+  },
+
+  updateUI() {
+    const el = $('#marketStatus');
+    el.textContent = this.getStatusText();
+    el.className = 'header-status ' + this.getStatusClass();
+  }
+};
+
+// ======================== 基金数据获取 ========================
+const FundData = {
+  _queue: [],
+  _processing: false,
+
+  // JSONP方式获取单只基金估值（fundgz）
+  fetchOneJSONP(code) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('请求超时: ' + code));
+      }, 10000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        delete window.jsonpgz;
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window.jsonpgz = (data) => {
+        cleanup();
+        resolve(data);
+      };
+
+      script.onerror = () => {
+        cleanup();
+        reject(new Error('加载失败: ' + code));
+      };
+
+      script.src = FUNDGZ_BASE + '/' + code + '.js?rt=' + Date.now();
+      document.head.appendChild(script);
+    });
+  },
+
+  // 通过代理获取估值数据
+  async fetchOneProxy(code, proxyUrl) {
+    const url = proxyUrl.replace('{code}', code);
+    const resp = await fetch(url);
+    const text = await resp.text();
+    const match = text.match(/jsonpgz\((.+)\)/);
+    if (match) return JSON.parse(match[1]);
+    return JSON.parse(text);
+  },
+
+  // 使用 fetch 直连尝试
+  async fetchOneDirect(code) {
+    const url = 'https://fundgz.1234567.com.cn/js/' + code + '.js?rt=' + Date.now();
+    const resp = await fetch(url, { mode: 'cors' });
+    const text = await resp.text();
+    const match = text.match(/jsonpgz\((.+)\)/);
+    if (match) return JSON.parse(match[1]);
+    throw new Error('解析失败');
+  },
+
+  // ---- 官方净值数据（pingzhongdata，更新更及时） ----
+
+  // JSONP方式获取官方净值历史
+  fetchOfficialJSONP(code) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('净值请求超时: ' + code));
+      }, 10000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        delete window.Data_netWorthTrend;
+        delete window.fS_name;
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      script.onload = () => {
+        try {
+          const trend = window.Data_netWorthTrend;
+          const name = window.fS_name;
+          cleanup();
+          if (trend && Array.isArray(trend) && trend.length > 0) {
+            // 从后往前找最后一个非null净值
+            let latest = null;
+            for (let i = trend.length - 1; i >= 0; i--) {
+              if (trend[i].y != null) {
+                latest = trend[i];
+                break;
+              }
+            }
+            if (latest) {
+              // x 是毫秒时间戳
+              const d = new Date(latest.x);
+              const jzrq = d.getFullYear() + '-' +
+                String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                String(d.getDate()).padStart(2, '0');
+              resolve({ dwjz: String(latest.y), jzrq, name: name || '' });
+              return;
+            }
+          }
+          reject(new Error('净值数据为空'));
+        } catch (e) {
+          cleanup();
+          reject(new Error('净值解析失败: ' + e.message));
+        }
+      };
+
+      script.onerror = () => {
+        cleanup();
+        reject(new Error('净值加载失败: ' + code));
+      };
+
+      script.src = 'https://fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
+      document.head.appendChild(script);
+    });
+  },
+
+  // 通过代理获取官方净值
+  async fetchOfficialViaProxy(code, proxyUrl) {
+    const url = proxyUrl
+      .replace(/\/proxy\?code=\{code\}$/, '/nav?code=' + code)
+      .replace(/\/api\/fundgz\/\{code\}$/, '/api/nav/' + code);
+    const resp = await fetch(url);
+    return resp.json();
+  },
+
+  // 通过 fetch 直连获取官方净值
+  async fetchOfficialDirect(code) {
+    const url = 'https://fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
+    const resp = await fetch(url, { mode: 'cors' });
+    const text = await resp.text();
+    // 正则提取 Data_netWorthTrend 数组
+    const trendMatch = text.match(/var Data_netWorthTrend\s*=\s*(\[[\s\S]*?\]);/);
+    const nameMatch = text.match(/var fS_name\s*=\s*"(.+?)";/);
+    if (!trendMatch) throw new Error('净值数据解析失败');
+    const trend = JSON.parse(trendMatch[1]);
+    let latest = null;
+    for (let i = trend.length - 1; i >= 0; i--) {
+      if (trend[i].y != null) { latest = trend[i]; break; }
+    }
+    if (!latest) throw new Error('无有效净值');
+    const d = new Date(latest.x);
+    const jzrq = d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+    return { dwjz: String(latest.y), jzrq, name: nameMatch ? nameMatch[1] : '' };
+  },
+
+  // 获取官方最新净值（公开披露净值，非估值）
+  async fetchOfficialNAV(code) {
+    const settings = Storage.getSettings();
+    if (settings.proxyUrl) {
+      try { return await this.fetchOfficialViaProxy(code, settings.proxyUrl); } catch (e) {}
+    }
+    try { return await this.fetchOfficialDirect(code); } catch (e) {}
+    try { return await this.fetchOfficialJSONP(code); } catch (e) {}
+    return null;
+  },
+
+  // 智能获取: 先试直连fetch，再试JSONP
+  async fetchOne(code) {
+    const settings = Storage.getSettings();
+    if (settings.proxyUrl) {
+      return this.fetchOneProxy(code, settings.proxyUrl);
+    }
+    try {
+      return await this.fetchOneDirect(code);
+    } catch (e) {
+      return this.fetchOneJSONP(code);
+    }
+  },
+
+  // 批量获取（估值 + 官方净值合并）
+  async fetchAll(codes, onProgress) {
+    const results = {};
+    const settings = Storage.getSettings();
+
+    for (let i = 0; i < codes.length; i++) {
+      const code = codes[i];
+
+      // 并行获取估值和官方净值
+      const [gzResult, officialNAV] = await Promise.allSettled([
+        (async () => {
+          if (settings.proxyUrl) {
+            return await this.fetchOneProxy(code, settings.proxyUrl);
+          }
+          try { return await this.fetchOneDirect(code); } catch (e) {
+            return await this.fetchOneJSONP(code);
+          }
+        })(),
+        this.fetchOfficialNAV(code)
+      ]);
+
+      if (gzResult.status === 'fulfilled') {
+        const data = gzResult.value;
+        // 用官方净值数据修正 dwjz / jzrq（officialNAV更新更及时）
+        if (officialNAV.status === 'fulfilled' && officialNAV.value) {
+          const nav = officialNAV.value;
+          // 如果官方净值的日期更新，使用官方数据
+          if (!data.jzrq || (nav.jzrq && nav.jzrq > data.jzrq)) {
+            data.dwjz = nav.dwjz;
+            data.jzrq = nav.jzrq;
+          }
+          // 补充基金名称
+          if (!data.name && nav.name) data.name = nav.name;
+        }
+        results[code] = { success: true, data };
+      } else if (officialNAV.status === 'fulfilled' && officialNAV.value) {
+        // fundgz 失败但官方净值成功：构造最小数据
+        const nav = officialNAV.value;
+        results[code] = {
+          success: true,
+          data: { name: nav.name, dwjz: nav.dwjz, jzrq: nav.jzrq, gsz: null, gszzl: null, gztime: null }
+        };
+      } else {
+        results[code] = {
+          success: false,
+          error: gzResult.status === 'rejected' ? (gzResult.reason?.message || '获取失败') : '获取失败'
+        };
+      }
+      if (onProgress) onProgress(i + 1, codes.length, code);
+    }
+    return results;
+  }
+};
+
+// ======================== 基金搜索 ========================
+const FundSearch = {
+  _cache: null,
+  _loading: false,
+  _loadPromise: null,
+
+  async loadFundList() {
+    if (this._cache) return this._cache;
+    if (this._loadPromise) return this._loadPromise;
+
+    // 先从localStorage缓存加载
+    const cached = Storage.getFundListCache();
+    if (cached) {
+      this._cache = cached;
+      return cached;
+    }
+
+    const settings = Storage.getSettings();
+
+    this._loadPromise = (async () => {
+      // 如果设置了代理，通过代理加载
+      if (settings.proxyUrl) {
+        // 从估值代理地址推导基金列表代理地址
+        const fundListUrl = settings.proxyUrl
+          .replace(/\/proxy\?code=\{code\}$/, '/fundlist')
+          .replace(/\/api\/fundgz\/\{code\}$/, '/api/fundlist');
+        const resp = await fetch(fundListUrl);
+        const raw = await resp.json();
+        const list = raw.map(item => ({
+          code: item[0],
+          pinyin: item[1],
+          name: item[2],
+          fullPinyin: item[3],
+          type: item[4]
+        }));
+        Storage.setFundListCache(list);
+        this._cache = list;
+        return list;
+      }
+
+      // JSONP方式加载
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error('基金列表加载超时'));
+        }, 15000);
+
+        function cleanup() {
+          clearTimeout(timeout);
+          if (script.parentNode) script.parentNode.removeChild(script);
+        }
+
+        window.r = null;
+
+        script.onload = () => {
+          cleanup();
+          const raw = window.r;
+          if (raw && Array.isArray(raw)) {
+            const list = raw.map(item => ({
+              code: item[0],
+              pinyin: item[1],
+              name: item[2],
+              fullPinyin: item[3],
+              type: item[4]
+            }));
+            Storage.setFundListCache(list);
+            this._cache = list;
+            resolve(list);
+          } else {
+            reject(new Error('基金列表格式错误'));
+          }
+        };
+
+        script.onerror = () => {
+          cleanup();
+          reject(new Error('基金列表加载失败'));
+        };
+
+        script.src = FUNDCODE_URL + '?rt=' + Date.now();
+        document.head.appendChild(script);
+      });
+    })();
+
+    return this._loadPromise;
+  },
+
+  search(query) {
+    if (!query || query.trim().length < 1) return [];
+    const q = query.trim().toLowerCase();
+    return (this._cache || []).filter(item => {
+      if (item.code === q) return true;
+      if (item.code.includes(q)) return true;
+      if (item.name.includes(q)) return true;
+      if (item.pinyin && item.pinyin.toLowerCase().includes(q)) return true;
+      if (item.fullPinyin && item.fullPinyin.toLowerCase().includes(q)) return true;
+      return false;
+    }).slice(0, 30);
+  },
+
+  searchByNameOrCode(query) {
+    if (!this._cache) return [];
+    return this.search(query);
+  }
+};
+
+// ======================== 应用状态 ========================
+const AppState = {
+  funds: [],       // 本地基金列表 (含用户配置)
+  valuations: {},  // {code: {gsz, gszzl, dwjz, jzrq, gztime, name, ...}}
+  refreshTimer: null,
+  isRefreshing: false,
+  sortOrder: 0,    // 0=默认顺序, 1=涨幅升序, 2=涨幅降序
+};
+
+// ======================== UI渲染 ========================
+const UI = {
+  renderFundList() {
+    const container = $('#fundList');
+    const empty = $('#emptyState');
+
+    if (AppState.funds.length === 0) {
+      container.innerHTML = '';
+      container.style.display = 'none';
+      empty.style.display = 'flex';
+      return;
+    }
+
+    empty.style.display = 'none';
+    container.style.display = 'flex';
+
+    // 排序
+    let funds = [...AppState.funds];
+    if (AppState.sortOrder !== 0) {
+      funds.sort((a, b) => {
+        const va = AppState.valuations[a.code];
+        const vb = AppState.valuations[b.code];
+        const za = va ? parseFloat(va.gszzl) : NaN;
+        const zb = vb ? parseFloat(vb.gszzl) : NaN;
+        if (isNaN(za) && isNaN(zb)) return 0;
+        if (isNaN(za)) return 1;
+        if (isNaN(zb)) return -1;
+        return AppState.sortOrder === 1 ? za - zb : zb - za;
+      });
+    }
+
+    container.innerHTML = funds.map((fund, idx) => {
+      const val = AppState.valuations[fund.code];
+      const isLoading = !val;
+      const isError = val && val._error;
+
+      // 估值数据
+      const gsz = val ? parseFloat(val.gsz) : null;
+      const gszzl = val ? parseFloat(val.gszzl) : null;
+      const dwjz = val ? parseFloat(val.dwjz) : null;
+      const jzrq = val ? val.jzrq : null;
+      const gztime = val ? val.gztime : null;
+      const name = val ? val.name : (fund.name || '加载中…');
+
+      // 涨跌方向
+      let changeClass = 'flat';
+      let changeSymbol = '';
+      if (gszzl > 0) { changeClass = 'up'; changeSymbol = '↑ '; }
+      else if (gszzl < 0) { changeClass = 'down'; changeSymbol = '↓ '; }
+
+      // 展开状态
+      const expanded = fund._expanded || false;
+
+      return `
+      <div class="fund-card${expanded ? ' expanded' : ''}" data-code="${fund.code}">
+        <div class="fund-card-main" data-action="toggle">
+          <div class="fund-card-header">
+            <div style="flex:1;min-width:0">
+              <div class="fund-name">${isLoading ? '<span class="skeleton skeleton-text" style="display:inline-block;width:70%"></span>' : name}</div>
+              <div class="fund-code">${fund.code}</div>
+            </div>
+            <div class="fund-card-actions">
+              <button class="icon-btn" data-action="delete" data-code="${fund.code}" style="font-size:14px" aria-label="删除">🗑</button>
+            </div>
+          </div>
+          ${isLoading ? `
+            <div class="skeleton skeleton-num"></div>
+            <div class="skeleton skeleton-text short"></div>
+          ` : isError ? `
+            <div style="color:var(--text-secondary);padding:8px 0;font-size:13px">⚠️ ${val._error || '加载失败'}</div>
+          ` : `
+            <div class="fund-valuation">
+              <span class="fund-gsz">${gsz ? gsz.toFixed(4) : '--'}</span>
+              <span class="fund-change ${changeClass}">${changeSymbol}${gszzl != null ? gszzl.toFixed(2) + '%' : '--'}</span>
+            </div>
+            <div class="fund-meta">
+              <span class="dwjz">净值 ${dwjz ? dwjz.toFixed(4) : '--'}</span>
+              ${jzrq ? `<span class="dwjz">${jzrq}</span>` : ''}
+              ${gztime ? `<span class="gztime">估值 ${gztime.slice(0,5) || gztime}</span>` : ''}
+            </div>
+          `}
+        </div>
+        <div class="fund-card-detail">
+          <div class="detail-row">
+            <span class="detail-label">基金名称</span>
+            <span class="detail-value">${name}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">估算净值</span>
+            <span class="detail-value" style="font-size:16px;font-weight:600">${gsz ? gsz.toFixed(4) : '--'}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">估算涨跌</span>
+            <span class="detail-value ${changeClass}">${changeSymbol}${gszzl != null ? gszzl.toFixed(2) + '%' : '--'}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">单位净值</span>
+            <span class="detail-value">${dwjz ? dwjz.toFixed(4) : '--'}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">净值日期</span>
+            <span class="detail-value">${jzrq || '--'}</span>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+  },
+
+  renderSearchResults(results) {
+    const container = $('#searchResults');
+    if (!results || results.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-secondary)">未找到匹配基金</div>';
+      return;
+    }
+    const existingCodes = new Set(AppState.funds.map(f => f.code));
+    container.innerHTML = results.map(r => {
+      const added = existingCodes.has(r.code);
+      return `
+      <div class="search-result-item">
+        <div style="flex:1;min-width:0">
+          <div class="search-result-name">${r.name}</div>
+          <div style="font-size:11px;color:var(--text-secondary)">${r.code}</div>
+        </div>
+        <button class="search-result-add${added ? ' added' : ''}"
+                data-code="${r.code}" data-name="${r.name}"
+                ${added ? 'disabled' : ''}>
+          ${added ? '已添加' : '+ 添加'}
+        </button>
+      </div>`;
+    }).join('');
+  },
+
+  updateTimeDisplay() {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    $('#updateTime').textContent = '更新于 ' + timeStr;
+  }
+};
+
+// ======================== 应用逻辑 ========================
+const App = {
+  async init() {
+    Theme.init();
+    Market.updateUI();
+    AppState.funds = Storage.getFunds();
+    UI.renderFundList();
+    this.bindEvents();
+    await this.refreshAll();
+    this.startAutoRefresh();
+  },
+
+  bindEvents() {
+    // FAB 添加基金
+    $('#btnAdd').addEventListener('click', () => this.openAddModal());
+    $('#btnCloseAdd').addEventListener('click', () => this.closeAddModal());
+    $('#btnSort').addEventListener('click', () => this.toggleSort());
+    $('#btnTheme').addEventListener('click', () => Theme.toggle());
+    $('#btnSettings').addEventListener('click', () => this.openSettingsModal());
+    $('#btnCloseSettings').addEventListener('click', () => this.closeSettingsModal());
+
+    // 搜索
+    $('#btnSearch').addEventListener('click', () => this.doSearch());
+    $('#searchInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.doSearch();
+    });
+    // 实时搜索
+    let searchTimeout;
+    $('#searchInput').addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => this.doSearch(), 300);
+    });
+
+    // 搜索结果点击
+    $('#searchResults').addEventListener('click', (e) => {
+      const btn = e.target.closest('.search-result-add');
+      if (!btn || btn.disabled) return;
+      const code = btn.dataset.code;
+      const name = btn.dataset.name;
+      this.addFund(code, name);
+      btn.disabled = true;
+      btn.classList.add('added');
+      btn.textContent = '已添加';
+    });
+
+    // 基金卡片交互
+    $('#fundList').addEventListener('click', (e) => {
+      const card = e.target.closest('.fund-card');
+      if (!card) return;
+
+      const action = e.target.dataset.action;
+      const code = card.dataset.code;
+
+      if (action === 'delete') {
+        e.stopPropagation();
+        this.deleteFund(code);
+        return;
+      }
+      // 点击输入框不触发展开/收起
+      if (e.target.tagName === 'INPUT') return;
+      // 点击卡片主体区域展开/收起
+      if (e.target.closest('.fund-card-main')) {
+        const fund = AppState.funds.find(f => f.code === code);
+        if (fund) {
+          fund._expanded = !fund._expanded;
+          Storage.saveFunds(AppState.funds);
+          UI.renderFundList();
+        }
+      }
+    });
+
+    // 模态框点击遮罩关闭
+    $('#addModal').addEventListener('click', (e) => {
+      if (e.target === $('#addModal')) this.closeAddModal();
+    });
+    $('#settingsModal').addEventListener('click', (e) => {
+      if (e.target === $('#settingsModal')) this.closeSettingsModal();
+    });
+
+    // 设置面板
+    $('#toggleTheme').addEventListener('click', () => Theme.toggle());
+    $('#toggleAutoRefresh').addEventListener('click', () => {
+      const settings = Storage.getSettings();
+      settings.autoRefresh = !settings.autoRefresh;
+      Storage.saveSettings(settings);
+      const el = $('#toggleAutoRefresh');
+      el.className = 'toggle' + (settings.autoRefresh ? ' on' : '');
+      if (settings.autoRefresh) {
+        this.startAutoRefresh();
+      } else {
+        this.stopAutoRefresh();
+      }
+      toast(settings.autoRefresh ? '已开启自动刷新' : '已关闭自动刷新');
+    });
+
+    // 代理设置
+    $('#proxyUrl').addEventListener('change', (e) => {
+      const settings = Storage.getSettings();
+      settings.proxyUrl = e.target.value.trim();
+      Storage.saveSettings(settings);
+    });
+
+    // 导出
+    $('#btnExport').addEventListener('click', () => this.exportData());
+    // 导入
+    $('#btnImport').addEventListener('click', () => $('#importFileInput').click());
+    $('#importFileInput').addEventListener('change', (e) => this.importData(e));
+    // 清除
+    $('#btnClearAll').addEventListener('click', () => this.clearAll());
+
+    // 页面可见性变化时刷新
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        Market.updateUI();
+        this.refreshAll();
+      }
+    });
+
+    // 系统主题变化
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (Storage.getTheme() === 'auto') Theme.init();
+    });
+  },
+
+  async refreshAll() {
+    if (AppState.isRefreshing) return;
+    if (AppState.funds.length === 0) return;
+
+    AppState.isRefreshing = true;
+    const codes = AppState.funds.map(f => f.code);
+
+    try {
+      const results = await FundData.fetchAll(codes, (done, total, code) => {
+        // 边加载边更新
+      });
+
+      // 更新估值数据
+      for (const [code, result] of Object.entries(results)) {
+        if (result.success) {
+          AppState.valuations[code] = result.data;
+        } else {
+          // 保留旧数据，标记错误
+          if (!AppState.valuations[code]) {
+            AppState.valuations[code] = { _error: result.error };
+          } else {
+            AppState.valuations[code]._error = result.error;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('刷新失败:', e);
+    }
+
+    AppState.isRefreshing = false;
+    UI.renderFundList();
+    UI.updateTimeDisplay();
+    Market.updateUI();
+  },
+
+  addFund(code, name) {
+    if (Storage.addFund({ code, name })) {
+      AppState.funds = Storage.getFunds();
+      // 立即获取估值
+      FundData.fetchOne(code).then(data => {
+        AppState.valuations[code] = data;
+      }).catch(err => {
+        AppState.valuations[code] = { _error: err.message };
+      }).finally(() => {
+        UI.renderFundList();
+        UI.updateTimeDisplay();
+      });
+      UI.renderFundList();
+      toast('已添加 ' + (name || code));
+    } else {
+      toast('该基金已在列表中');
+    }
+  },
+
+  deleteFund(code) {
+    if (confirm('确定要删除基金 ' + code + ' 吗？')) {
+      Storage.removeFund(code);
+      AppState.funds = Storage.getFunds();
+      delete AppState.valuations[code];
+      UI.renderFundList();
+      toast('已删除');
+    }
+  },
+
+  async doSearch() {
+    const query = $('#searchInput').value.trim();
+    if (!query) {
+      $('#searchResults').innerHTML = '';
+      return;
+    }
+
+    // 如果直接输入了6位纯数字基金代码，快速添加
+    if (/^\d{6}$/.test(query)) {
+      try {
+        const data = await FundData.fetchOne(query);
+        this.addFund(query, data.name);
+        $('#searchInput').value = '';
+        $('#searchResults').innerHTML = '';
+        return;
+      } catch (e) {
+        // 获取失败，尝试从列表中搜索
+      }
+    }
+
+    // 确保基金列表已加载
+    $('#searchResults').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-secondary)">🔍 加载基金列表中…</div>';
+    try {
+      await FundSearch.loadFundList();
+      const results = FundSearch.search(query);
+      UI.renderSearchResults(results);
+    } catch (e) {
+      $('#searchResults').innerHTML = '<div style="text-align:center;padding:20px;color:var(--up-color)">⚠️ 基金列表加载失败，请检查网络后重试<br><small>' + e.message + '</small></div>';
+    }
+  },
+
+  openAddModal() {
+    $('#addModal').style.display = 'flex';
+    $('#searchInput').value = '';
+    $('#searchResults').innerHTML = '';
+    setTimeout(() => $('#searchInput').focus(), 300);
+
+    // 预加载基金列表
+    FundSearch.loadFundList().catch(() => {});
+  },
+
+  closeAddModal() {
+    $('#addModal').style.display = 'none';
+  },
+
+  openSettingsModal() {
+    const settings = Storage.getSettings();
+    $('#proxyUrl').value = settings.proxyUrl || '';
+    $('#toggleAutoRefresh').className = 'toggle' + (settings.autoRefresh ? ' on' : '');
+    $('#settingsModal').style.display = 'flex';
+  },
+
+  closeSettingsModal() {
+    $('#settingsModal').style.display = 'none';
+  },
+
+  startAutoRefresh() {
+    this.stopAutoRefresh();
+    const settings = Storage.getSettings();
+    if (!settings.autoRefresh) return;
+    // 每30秒刷新
+    AppState.refreshTimer = setInterval(() => {
+      if (Market.isTradingTime() || Market.isTradingDay()) {
+        this.refreshAll();
+      }
+      Market.updateUI();
+    }, 30000);
+  },
+
+  stopAutoRefresh() {
+    if (AppState.refreshTimer) {
+      clearInterval(AppState.refreshTimer);
+      AppState.refreshTimer = null;
+    }
+  },
+
+  toggleSort() {
+    // 0 → 2(降序) → 1(升序) → 0(默认)
+    AppState.sortOrder = AppState.sortOrder === 0 ? 2 : AppState.sortOrder === 2 ? 1 : 0;
+    const btn = $('#btnSort');
+    if (AppState.sortOrder === 2) {
+      btn.textContent = '↓';
+      toast('涨幅降序：涨最多排最前');
+    } else if (AppState.sortOrder === 1) {
+      btn.textContent = '↑';
+      toast('涨幅升序：跌最多排最前');
+    } else {
+      btn.textContent = '📊';
+      toast('恢复默认顺序');
+    }
+    UI.renderFundList();
+  },
+
+  exportData() {
+    const data = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      funds: AppState.funds.map(f => ({
+        code: f.code,
+        name: f.name,
+        addedAt: f.addedAt
+      }))
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'fund_app_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('配置已导出');
+  },
+
+  importData(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+
+        // 检测格式并提取基金列表
+        let importFunds = [];
+
+        // 格式1: 自选基金助手 (x2rr/funds) — fundListGroup[].funds[].code
+        if (data.fundListGroup && Array.isArray(data.fundListGroup)) {
+          const seen = new Set();
+          data.fundListGroup.forEach(group => {
+            if (group.funds && Array.isArray(group.funds)) {
+              group.funds.forEach(f => {
+                if (f.code && !seen.has(f.code)) {
+                  seen.add(f.code);
+                  importFunds.push({ code: f.code, name: '', num: f.num || 0 });
+                }
+              });
+            }
+          });
+        }
+        // 格式2: 本应用导出 — funds[]
+        else if (data.funds && Array.isArray(data.funds)) {
+          importFunds = data.funds;
+        }
+        // 格式3: 纯数组 [{code, name}, ...]
+        else if (Array.isArray(data)) {
+          importFunds = data;
+        }
+
+        if (importFunds.length === 0) {
+          throw new Error('未识别到基金数据，支持的格式：\n• 自选基金助手配置文件\n• 本应用备份文件');
+        }
+
+        // 合并而非替换
+        const existing = new Set(AppState.funds.map(f => f.code));
+        let added = 0;
+        importFunds.forEach(f => {
+          if (!existing.has(f.code)) {
+            Storage.addFund({
+              code: f.code,
+              name: f.name || ''
+            });
+            existing.add(f.code);
+            added++;
+          }
+        });
+        AppState.funds = Storage.getFunds();
+        UI.renderFundList();
+        this.refreshAll();
+        toast(`已导入 ${added} 只基金 (共 ${importFunds.length} 只，跳过 ${importFunds.length - added} 只重复)`);
+      } catch (err) {
+        toast('导入失败: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  },
+
+  clearAll() {
+    if (confirm('确定要清除所有自选基金吗？此操作不可恢复！')) {
+      localStorage.removeItem(STORAGE_KEY);
+      AppState.funds = [];
+      AppState.valuations = {};
+      Storage.saveFunds([]);
+      UI.renderFundList();
+      toast('已清除所有数据');
+    }
+  }
+};
+
+// ======================== PWA Manifest ========================
+(function setupPWA() {
+  const manifest = {
+    name: '基金估值',
+    short_name: '基金估值',
+    description: '手机端自选基金实时估值查看工具',
+    start_url: '.',
+    display: 'standalone',
+    background_color: '#f0f2f5',
+    theme_color: '#1677ff',
+    orientation: 'portrait',
+    icons: [{
+      src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="32" fill="#1677ff"/><text x="96" y="120" font-size="100" text-anchor="middle" fill="white">📈</text></svg>'),
+      sizes: '192x192',
+      type: 'image/svg+xml'
+    }]
+  };
+
+  const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+  const manifestURL = URL.createObjectURL(blob);
+  const link = document.createElement('link');
+  link.rel = 'manifest';
+  link.href = manifestURL;
+  document.head.appendChild(link);
+})();
+
+// ======================== 启动应用 ========================
+document.addEventListener('DOMContentLoaded', () => App.init());
+
+// ======================== 错误处理 ========================
+window.addEventListener('error', (e) => {
+  if (e.target.tagName === 'SCRIPT' && e.target.src.includes('fundgz')) {
+    // JSONP加载失败，已由Promise处理
+  }
+});
+
+// 阻止双击缩放
+document.addEventListener('dblclick', (e) => {
+  if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') {
+    e.preventDefault();
+  }
+}, { passive: false });
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# Netlify 部署配置
+# 将项目部署到 Netlify 后，此文件会自动配置代理，解决跨域问题
+
+[[redirects]]
+  from = "/api/fundgz/:code"
+  to = "https://fundgz.1234567.com.cn/js/:code.js"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/fundlist"
+  to = "https://fund.eastmoney.com/js/fundcode_search.js"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/nav/:code"
+  to = "https://fund.eastmoney.com/pingzhongdata/:code.js"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
