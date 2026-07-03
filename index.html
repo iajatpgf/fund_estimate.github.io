@@ -993,61 +993,60 @@ const FundData = {
     }
   },
 
-  // 批量获取（估值 + 官方净值合并）
-  async fetchAll(codes, onProgress) {
-    const results = {};
+  // 批量获取估值数据（fundgz，直接更新 AppState.valuations）
+  async fetchAllGZ(codes, onEach) {
     const settings = Storage.getSettings();
 
-    for (let i = 0; i < codes.length; i++) {
-      const code = codes[i];
+    // 有代理：并行获取
+    if (settings.proxyUrl) {
+      const promises = codes.map(async (code) => {
+        try {
+          const data = await this.fetchOneProxy(code, settings.proxyUrl);
+          AppState.valuations[code] = data;
+        } catch (err) {
+          if (!AppState.valuations[code]) AppState.valuations[code] = { _error: err.message };
+          else AppState.valuations[code]._error = err.message;
+        }
+        if (onEach) onEach(code);
+      });
+      await Promise.all(promises);
+      return;
+    }
 
-      // 并行获取估值和官方净值
-      const [gzResult, officialNAV] = await Promise.allSettled([
-        (async () => {
-          if (settings.proxyUrl) {
-            return await this.fetchOneProxy(code, settings.proxyUrl);
-          }
-          try { return await this.fetchOneDirect(code); } catch (e) {
-            return await this.fetchOneJSONP(code);
-          }
-        })(),
-        this.fetchOfficialNAV(code)
-      ]);
+    // 无代理：JSONP串行，逐只更新
+    for (const code of codes) {
+      try {
+        let data;
+        try { data = await this.fetchOneDirect(code); } catch (e) {
+          data = await this.fetchOneJSONP(code);
+        }
+        AppState.valuations[code] = data;
+      } catch (err) {
+        if (!AppState.valuations[code]) AppState.valuations[code] = { _error: err.message };
+        else AppState.valuations[code]._error = err.message;
+      }
+      if (onEach) onEach(code);
+    }
+  },
 
-      if (gzResult.status === 'fulfilled') {
-        const data = gzResult.value;
-        // 用官方净值数据修正 dwjz / jzrq（officialNAV更新更及时）
-        if (officialNAV.status === 'fulfilled' && officialNAV.value) {
-          const nav = officialNAV.value;
-          // 如果官方净值的日期更新，使用官方数据
+  // 后台补充官方净值数据（pingzhongdata，修正dwjz/jzrq/actualChange）
+  async fetchAllNAV(codes) {
+    for (const code of codes) {
+      try {
+        const nav = await this.fetchOfficialNAV(code);
+        if (nav && AppState.valuations[code] && !AppState.valuations[code]._error) {
+          const data = AppState.valuations[code];
           if (!data.jzrq || (nav.jzrq && nav.jzrq > data.jzrq)) {
             data.dwjz = nav.dwjz;
             data.jzrq = nav.jzrq;
           }
-          // 补充基金名称
           if (!data.name && nav.name) data.name = nav.name;
-          // 传递实际涨跌幅和前一日净值
           if (nav.actualChange != null) data.actualChange = nav.actualChange;
           if (nav.prevDwjz != null) data.prevDwjz = nav.prevDwjz;
         }
-        results[code] = { success: true, data };
-      } else if (officialNAV.status === 'fulfilled' && officialNAV.value) {
-        // fundgz 失败但官方净值成功：构造最小数据
-        const nav = officialNAV.value;
-        results[code] = {
-          success: true,
-          data: { name: nav.name, dwjz: nav.dwjz, jzrq: nav.jzrq, gsz: null, gszzl: null, gztime: null,
-                  actualChange: nav.actualChange, prevDwjz: nav.prevDwjz }
-        };
-      } else {
-        results[code] = {
-          success: false,
-          error: gzResult.status === 'rejected' ? (gzResult.reason?.message || '获取失败') : '获取失败'
-        };
-      }
-      if (onProgress) onProgress(i + 1, codes.length, code);
+      } catch (e) { /* 静默失败 */ }
     }
-    return results;
+    UI.renderFundList();
   }
 };
 
@@ -1281,18 +1280,6 @@ const UI = {
             <span class="detail-label">估算涨幅</span>
             <span class="detail-value ${changeClass}">${changeSymbol}${val.gszzl != null && val.gszzl !== '' ? parseFloat(val.gszzl).toFixed(2) + '%' : '--'}</span>
           </div>
-          <div class="detail-row">
-            <span class="detail-label">昨日涨幅</span>
-            ${(() => {
-              const ac = val.actualChange != null ? parseFloat(val.actualChange) : NaN;
-              if (!isNaN(ac)) {
-                const cls = ac > 0 ? 'up' : ac < 0 ? 'down' : 'flat';
-                const sym = ac > 0 ? '↑ ' : ac < 0 ? '↓ ' : '';
-                return `<span class="detail-value ${cls}">${sym}${ac.toFixed(2)}%</span>`;
-              }
-              return '<span class="detail-value">--</span>';
-            })()}
-          </div>
           <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
             <button class="detail-save-btn" data-action="delete" data-code="${fund.code}" style="background:#ff4d4f">🗑 删除</button>
           </div>
@@ -1464,29 +1451,20 @@ const App = {
     AppState.isRefreshing = true;
     const codes = AppState.funds.map(f => f.code);
 
-    try {
-      const results = await FundData.fetchAll(codes, (done, total, code) => {
-        // 边加载边更新
-      });
-
-      // 更新估值数据
-      for (const [code, result] of Object.entries(results)) {
-        if (result.success) {
-          AppState.valuations[code] = result.data;
-        } else {
-          // 保留旧数据，标记错误
-          if (!AppState.valuations[code]) {
-            AppState.valuations[code] = { _error: result.error };
-          } else {
-            AppState.valuations[code]._error = result.error;
-          }
-        }
-      }
-    } catch (e) {
-      console.error('刷新失败:', e);
-    }
+    // Phase 1: 快速获取估值数据，每获取一只立即渲染
+    await FundData.fetchAllGZ(codes, (code) => {
+      UI.renderFundList();
+      UI.updateTimeDisplay();
+    });
 
     AppState.isRefreshing = false;
+    UI.renderFundList();
+    UI.updateTimeDisplay();
+    Market.updateUI();
+
+    // Phase 2: 后台补充官方净值（不阻塞UI，静默更新）
+    FundData.fetchAllNAV(codes);
+  },
     UI.renderFundList();
     UI.updateTimeDisplay();
     Market.updateUI();
