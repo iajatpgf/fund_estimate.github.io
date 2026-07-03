@@ -1465,10 +1465,6 @@ const App = {
     // Phase 2: 后台补充官方净值（不阻塞UI，静默更新）
     FundData.fetchAllNAV(codes);
   },
-    UI.renderFundList();
-    UI.updateTimeDisplay();
-    Market.updateUI();
-  },
 
   addFund(code, name) {
     if (Storage.addFund({ code, name })) {
