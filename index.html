@@ -997,12 +997,29 @@ const FundData = {
   async fetchAllGZ(codes, onEach) {
     const settings = Storage.getSettings();
 
+    const mergeInto = (code, gzData) => {
+      const prev = AppState.valuations[code];
+      // 保留 Phase 2 补充的实际涨幅数据（pingzhongdata 更新更及时）
+      if (prev && !prev._error) {
+        if (prev.actualChange != null) gzData.actualChange = prev.actualChange;
+        if (prev.prevDwjz != null) gzData.prevDwjz = prev.prevDwjz;
+        // 保留更准确的 jzrq / dwjz
+        if (prev.jzrq && (!gzData.jzrq || prev.jzrq > gzData.jzrq)) {
+          gzData.dwjz = prev.dwjz;
+          gzData.jzrq = prev.jzrq;
+        }
+        // 保留更准确的基金名称
+        if (!gzData.name && prev.name) gzData.name = prev.name;
+      }
+      AppState.valuations[code] = gzData;
+    };
+
     // 有代理：并行获取
     if (settings.proxyUrl) {
       const promises = codes.map(async (code) => {
         try {
           const data = await this.fetchOneProxy(code, settings.proxyUrl);
-          AppState.valuations[code] = data;
+          mergeInto(code, data);
         } catch (err) {
           if (!AppState.valuations[code]) AppState.valuations[code] = { _error: err.message };
           else AppState.valuations[code]._error = err.message;
@@ -1020,7 +1037,7 @@ const FundData = {
         try { data = await this.fetchOneDirect(code); } catch (e) {
           data = await this.fetchOneJSONP(code);
         }
-        AppState.valuations[code] = data;
+        mergeInto(code, data);
       } catch (err) {
         if (!AppState.valuations[code]) AppState.valuations[code] = { _error: err.message };
         else AppState.valuations[code]._error = err.message;
