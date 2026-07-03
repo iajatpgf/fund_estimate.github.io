@@ -1214,10 +1214,7 @@ const UI = {
       const isLoading = !val;
       const isError = val && val._error;
 
-      const gsz = val ? parseFloat(val.gsz) : null;
-      const dwjz = val ? parseFloat(val.dwjz) : null;
       const jzrq = val ? val.jzrq : null;
-      const gztime = val ? val.gztime : null;
       const name = val ? val.name : (fund.name || '加载中…');
 
       const changeInfo = val ? getDisplayChange(val) : null;
@@ -1255,7 +1252,7 @@ const UI = {
             </div>
           </div>
           <div class="fund-card-detail">
-            <div class="detail-row"><span class="detail-label">错误</span><span class="detail-value">${val._error || '未知'}</span></div>
+            <div class="detail-row"><span class="detail-label">错误信息</span><span class="detail-value">${val._error || '未知'}</span></div>
             <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
               <button class="detail-save-btn" data-action="delete" data-code="${fund.code}" style="background:#ff4d4f">🗑 删除</button>
             </div>
@@ -1281,32 +1278,20 @@ const UI = {
         </div>
         <div class="fund-card-detail">
           <div class="detail-row">
-            <span class="detail-label">基金名称</span>
-            <span class="detail-value">${name}</span>
+            <span class="detail-label">估算涨幅</span>
+            <span class="detail-value ${changeClass}">${changeSymbol}${val.gszzl != null && val.gszzl !== '' ? parseFloat(val.gszzl).toFixed(2) + '%' : '--'}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">基金代码</span>
-            <span class="detail-value">${fund.code}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">估算净值</span>
-            <span class="detail-value" style="font-size:16px;font-weight:600">${gsz ? gsz.toFixed(4) : '--'}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">${isActual ? '实际' : '估算'}涨跌</span>
-            <span class="detail-value ${changeClass}">${changeSymbol}${changeValue != null ? changeValue.toFixed(2) + '%' : '--'}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">单位净值</span>
-            <span class="detail-value">${dwjz ? dwjz.toFixed(4) : '--'}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">净值日期</span>
-            <span class="detail-value">${jzrq || '--'}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">估值时间</span>
-            <span class="detail-value">${gztime || '--'}</span>
+            <span class="detail-label">昨日涨幅</span>
+            ${(() => {
+              const ac = val.actualChange != null ? parseFloat(val.actualChange) : NaN;
+              if (!isNaN(ac)) {
+                const cls = ac > 0 ? 'up' : ac < 0 ? 'down' : 'flat';
+                const sym = ac > 0 ? '↑ ' : ac < 0 ? '↓ ' : '';
+                return `<span class="detail-value ${cls}">${sym}${ac.toFixed(2)}%</span>`;
+              }
+              return '<span class="detail-value">--</span>';
+            })()}
           </div>
           <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
             <button class="detail-save-btn" data-action="delete" data-code="${fund.code}" style="background:#ff4d4f">🗑 删除</button>
