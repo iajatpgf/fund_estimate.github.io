@@ -569,6 +569,13 @@ body {
           </div>
           <div class="toggle" id="toggleTheme"></div>
         </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">简洁模式</div>
+            <div class="settings-desc">只显示基金名称和涨跌幅</div>
+          </div>
+          <div class="toggle" id="toggleCompact"></div>
+        </div>
       </div>
       <div class="settings-section">
         <div class="settings-section-title">数据</div>
@@ -715,6 +722,14 @@ const Storage = {
 
   setTheme(t) {
     localStorage.setItem(THEME_KEY, t);
+  },
+
+  getCompactMode() {
+    return localStorage.getItem('fund_app_compact') === '1';
+  },
+
+  saveCompactMode(v) {
+    localStorage.setItem('fund_app_compact', v ? '1' : '0');
   },
 
   getFundListCache() {
@@ -918,21 +933,25 @@ const FundData = {
           const name = window.fS_name;
           cleanup();
           if (trend && Array.isArray(trend) && trend.length > 0) {
-            // 从后往前找最后一个非null净值
-            let latest = null;
+            // 从后往前找最后两个非null净值
+            let latest = null, prev = null;
             for (let i = trend.length - 1; i >= 0; i--) {
               if (trend[i].y != null) {
-                latest = trend[i];
-                break;
+                if (!latest) { latest = trend[i]; }
+                else if (!prev) { prev = trend[i]; break; }
               }
             }
             if (latest) {
-              // x 是毫秒时间戳
               const d = new Date(latest.x);
               const jzrq = d.getFullYear() + '-' +
                 String(d.getMonth() + 1).padStart(2, '0') + '-' +
                 String(d.getDate()).padStart(2, '0');
-              resolve({ dwjz: String(latest.y), jzrq, name: name || '' });
+              const result = { dwjz: String(latest.y), jzrq, name: name || '' };
+              if (prev && prev.y != null) {
+                result.prevDwjz = String(prev.y);
+                result.actualChange = ((latest.y - prev.y) / prev.y * 100).toFixed(2);
+              }
+              resolve(result);
               return;
             }
           }
@@ -967,21 +986,28 @@ const FundData = {
     const url = 'https://fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
     const resp = await fetch(url, { mode: 'cors' });
     const text = await resp.text();
-    // 正则提取 Data_netWorthTrend 数组
     const trendMatch = text.match(/var Data_netWorthTrend\s*=\s*(\[[\s\S]*?\]);/);
     const nameMatch = text.match(/var fS_name\s*=\s*"(.+?)";/);
     if (!trendMatch) throw new Error('净值数据解析失败');
     const trend = JSON.parse(trendMatch[1]);
-    let latest = null;
+    let latest = null, prev = null;
     for (let i = trend.length - 1; i >= 0; i--) {
-      if (trend[i].y != null) { latest = trend[i]; break; }
+      if (trend[i].y != null) {
+        if (!latest) { latest = trend[i]; }
+        else if (!prev) { prev = trend[i]; break; }
+      }
     }
     if (!latest) throw new Error('无有效净值');
     const d = new Date(latest.x);
     const jzrq = d.getFullYear() + '-' +
       String(d.getMonth() + 1).padStart(2, '0') + '-' +
       String(d.getDate()).padStart(2, '0');
-    return { dwjz: String(latest.y), jzrq, name: nameMatch ? nameMatch[1] : '' };
+    const result = { dwjz: String(latest.y), jzrq, name: nameMatch ? nameMatch[1] : '' };
+    if (prev && prev.y != null) {
+      result.prevDwjz = String(prev.y);
+      result.actualChange = ((latest.y - prev.y) / prev.y * 100).toFixed(2);
+    }
+    return result;
   },
 
   // 获取官方最新净值（公开披露净值，非估值）
@@ -1041,6 +1067,9 @@ const FundData = {
           }
           // 补充基金名称
           if (!data.name && nav.name) data.name = nav.name;
+          // 传递实际涨跌幅和前一日净值
+          if (nav.actualChange != null) data.actualChange = nav.actualChange;
+          if (nav.prevDwjz != null) data.prevDwjz = nav.prevDwjz;
         }
         results[code] = { success: true, data };
       } else if (officialNAV.status === 'fulfilled' && officialNAV.value) {
@@ -1048,7 +1077,8 @@ const FundData = {
         const nav = officialNAV.value;
         results[code] = {
           success: true,
-          data: { name: nav.name, dwjz: nav.dwjz, jzrq: nav.jzrq, gsz: null, gszzl: null, gztime: null }
+          data: { name: nav.name, dwjz: nav.dwjz, jzrq: nav.jzrq, gsz: null, gszzl: null, gztime: null,
+                  actualChange: nav.actualChange, prevDwjz: nav.prevDwjz }
         };
       } else {
         results[code] = {
@@ -1175,6 +1205,7 @@ const AppState = {
   refreshTimer: null,
   isRefreshing: false,
   sortOrder: 0,    // 0=默认顺序, 1=涨幅升序, 2=涨幅降序
+  compactMode: false, // 简洁模式
 };
 
 // ======================== UI渲染 ========================
@@ -1194,18 +1225,32 @@ const UI = {
     container.style.display = 'flex';
 
     // 排序
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     let funds = [...AppState.funds];
     if (AppState.sortOrder !== 0) {
       funds.sort((a, b) => {
         const va = AppState.valuations[a.code];
         const vb = AppState.valuations[b.code];
-        const za = va ? parseFloat(va.gszzl) : NaN;
-        const zb = vb ? parseFloat(vb.gszzl) : NaN;
+        const za = va ? (getDisplayChange(va)?.value ?? NaN) : NaN;
+        const zb = vb ? (getDisplayChange(vb)?.value ?? NaN) : NaN;
         if (isNaN(za) && isNaN(zb)) return 0;
         if (isNaN(za)) return 1;
         if (isNaN(zb)) return -1;
         return AppState.sortOrder === 1 ? za - zb : zb - za;
       });
+    }
+
+    // 辅助：决定显示估值涨幅还是实际涨幅
+    function getDisplayChange(val) {
+      // 如果净值日期是今天，优先显示实际涨幅
+      if (val.jzrq === today && val.actualChange != null) {
+        return { value: parseFloat(val.actualChange), label: '实际', isActual: true };
+      }
+      // 否则显示估算涨幅
+      if (val.gszzl != null && val.gszzl !== '') {
+        return { value: parseFloat(val.gszzl), label: '估算', isActual: false };
+      }
+      return null;
     }
 
     container.innerHTML = funds.map((fund, idx) => {
@@ -1215,21 +1260,74 @@ const UI = {
 
       // 估值数据
       const gsz = val ? parseFloat(val.gsz) : null;
-      const gszzl = val ? parseFloat(val.gszzl) : null;
       const dwjz = val ? parseFloat(val.dwjz) : null;
       const jzrq = val ? val.jzrq : null;
       const gztime = val ? val.gztime : null;
       const name = val ? val.name : (fund.name || '加载中…');
 
-      // 涨跌方向
+      // 涨跌方向与显示值
+      const changeInfo = val ? getDisplayChange(val) : null;
+      const changeValue = changeInfo ? changeInfo.value : null;
+      const changeLabel = changeInfo ? changeInfo.label : null;
+      const isActual = changeInfo ? changeInfo.isActual : false;
+
       let changeClass = 'flat';
       let changeSymbol = '';
-      if (gszzl > 0) { changeClass = 'up'; changeSymbol = '↑ '; }
-      else if (gszzl < 0) { changeClass = 'down'; changeSymbol = '↓ '; }
+      if (changeValue != null && !isNaN(changeValue)) {
+        if (changeValue > 0) { changeClass = 'up'; changeSymbol = '↑ '; }
+        else if (changeValue < 0) { changeClass = 'down'; changeSymbol = '↓ '; }
+      }
 
       // 展开状态
       const expanded = fund._expanded || false;
+      const compact = AppState.compactMode;
 
+      // === 简洁模式 ===
+      if (compact && !isLoading) {
+        return `
+        <div class="fund-card" data-code="${fund.code}">
+          <div class="fund-card-main" data-action="toggle">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:14px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
+              <span class="fund-change ${changeClass}" style="font-size:16px;flex-shrink:0;margin-left:8px">${changeSymbol}${changeValue != null ? changeValue.toFixed(2) + '%' : '--'}</span>
+            </div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">
+              ${isActual ? '实际涨幅' : '估算涨幅'} · ${jzrq || '--'}
+            </div>
+          </div>
+          <div class="fund-card-detail">
+            <div class="detail-row">
+              <span class="detail-label">基金代码</span>
+              <span class="detail-value">${fund.code}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">估算净值</span>
+              <span class="detail-value" style="font-size:16px;font-weight:600">${gsz ? gsz.toFixed(4) : '--'}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">${isActual ? '实际' : '估算'}涨跌</span>
+              <span class="detail-value ${changeClass}">${changeSymbol}${changeValue != null ? changeValue.toFixed(2) + '%' : '--'}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">单位净值</span>
+              <span class="detail-value">${dwjz ? dwjz.toFixed(4) : '--'}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">净值日期</span>
+              <span class="detail-value">${jzrq || '--'}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">估值时间</span>
+              <span class="detail-value">${gztime || '--'}</span>
+            </div>
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+              <button class="detail-save-btn" data-action="delete" data-code="${fund.code}" style="background:#ff4d4f">🗑 删除</button>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      // === 完整模式 ===
       return `
       <div class="fund-card${expanded ? ' expanded' : ''}" data-code="${fund.code}">
         <div class="fund-card-main" data-action="toggle">
@@ -1250,7 +1348,7 @@ const UI = {
           ` : `
             <div class="fund-valuation">
               <span class="fund-gsz">${gsz ? gsz.toFixed(4) : '--'}</span>
-              <span class="fund-change ${changeClass}">${changeSymbol}${gszzl != null ? gszzl.toFixed(2) + '%' : '--'}</span>
+              <span class="fund-change ${changeClass}">${changeSymbol}${changeValue != null ? changeValue.toFixed(2) + '%' : '--'}${isActual ? '<span style="font-size:10px;opacity:0.7"> 实际</span>' : ''}</span>
             </div>
             <div class="fund-meta">
               <span class="dwjz">净值 ${dwjz ? dwjz.toFixed(4) : '--'}</span>
@@ -1269,8 +1367,8 @@ const UI = {
             <span class="detail-value" style="font-size:16px;font-weight:600">${gsz ? gsz.toFixed(4) : '--'}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">估算涨跌</span>
-            <span class="detail-value ${changeClass}">${changeSymbol}${gszzl != null ? gszzl.toFixed(2) + '%' : '--'}</span>
+            <span class="detail-label">${isActual ? '实际' : '估算'}涨跌</span>
+            <span class="detail-value ${changeClass}">${changeSymbol}${changeValue != null ? changeValue.toFixed(2) + '%' : '--'}</span>
           </div>
           <div class="detail-row">
             <span class="detail-label">单位净值</span>
@@ -1321,6 +1419,7 @@ const UI = {
 const App = {
   async init() {
     Theme.init();
+    AppState.compactMode = Storage.getCompactMode();
     Market.updateUI();
     AppState.funds = Storage.getFunds();
     UI.renderFundList();
@@ -1410,6 +1509,14 @@ const App = {
         this.stopAutoRefresh();
       }
       toast(settings.autoRefresh ? '已开启自动刷新' : '已关闭自动刷新');
+    });
+
+    $('#toggleCompact').addEventListener('click', () => {
+      AppState.compactMode = !AppState.compactMode;
+      Storage.saveCompactMode(AppState.compactMode);
+      $('#toggleCompact').className = 'toggle' + (AppState.compactMode ? ' on' : '');
+      UI.renderFundList();
+      toast(AppState.compactMode ? '已切换至简洁模式' : '已切换至完整模式');
     });
 
     // 代理设置
@@ -1554,6 +1661,7 @@ const App = {
     const settings = Storage.getSettings();
     $('#proxyUrl').value = settings.proxyUrl || '';
     $('#toggleAutoRefresh').className = 'toggle' + (settings.autoRefresh ? ' on' : '');
+    $('#toggleCompact').className = 'toggle' + (AppState.compactMode ? ' on' : '');
     $('#settingsModal').style.display = 'flex';
   },
 

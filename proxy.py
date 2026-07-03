@@ -122,11 +122,14 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
 
                     if trend_match:
                         trend = json.loads(trend_match.group(1))
-                        latest = None
+                        latest, prev = None, None
                         for item in reversed(trend):
                             if item.get('y') is not None:
-                                latest = item
-                                break
+                                if latest is None:
+                                    latest = item
+                                elif prev is None:
+                                    prev = item
+                                    break
                         if latest:
                             import datetime
                             d = datetime.datetime.fromtimestamp(latest['x'] / 1000)
@@ -135,6 +138,9 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                                 'jzrq': d.strftime('%Y-%m-%d'),
                                 'name': name_match.group(1) if name_match else ''
                             }
+                            if prev and prev.get('y') is not None:
+                                result['prevDwjz'] = str(prev['y'])
+                                result['actualChange'] = str(round((latest['y'] - prev['y']) / prev['y'] * 100, 2))
                         else:
                             result = {'error': 'no valid nav'}
                     else:
