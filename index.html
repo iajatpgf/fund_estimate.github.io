@@ -60,7 +60,7 @@ body {
   line-height: 1.5;
   transition: background var(--transition), color var(--transition);
   min-height: 100vh;
-  padding-bottom: calc(80px + var(--safe-bottom));
+  padding-bottom: calc(90px + var(--safe-bottom));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -217,75 +217,57 @@ body {
 .empty-icon { font-size: 64px; margin-bottom: 16px; }
 .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
 .empty-desc { font-size: 13px; line-height: 1.6; }
-/* ========== FAB ========== */
-.fab {
-  position: fixed;
-  bottom: calc(24px + var(--safe-bottom));
-  right: 20px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: #fff;
-  font-size: 28px;
-  border: none;
-  box-shadow: 0 4px 16px rgba(22,119,255,0.35);
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  z-index: 90;
-  transition: transform 0.15s ease, box-shadow var(--transition);
-  -webkit-tap-highlight-color: transparent;
-}
-.fab:active { transform: scale(0.9); }
-.fab-left {
-  position: fixed;
-  bottom: calc(24px + var(--safe-bottom));
-  left: 20px;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  background: var(--card-bg);
-  color: var(--text);
-  font-size: 20px;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-lg);
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  z-index: 89;
-  transition: transform 0.15s ease, background var(--transition);
-  -webkit-tap-highlight-color: transparent;
-}
-.fab-left:active { transform: scale(0.9); background: var(--border); }
-/* ========== Bottom Toolbar ========== */
-.toolbar {
+/* ========== Bottom Action Bar ========== */
+.bottom-bar {
   position: fixed;
   bottom: 0;
   left: 0; right: 0;
-  background: var(--header-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: var(--card-bg);
   border-top: 1px solid var(--border);
-  padding: 8px 16px calc(8px + var(--safe-bottom));
+  padding: 10px 16px calc(10px + var(--safe-bottom));
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 12px;
   z-index: 100;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
 }
-.toolbar-info { font-size: 12px; color: var(--text-secondary); }
-.toolbar-actions { display: flex; gap: 8px; }
-.toolbar-btn {
-  padding: 6px 14px;
+.bottom-bar-btn {
+  flex: 1;
+  max-width: 120px;
+  padding: 10px 8px;
   border: 1px solid var(--border);
-  background: var(--card-bg);
+  border-radius: 12px;
+  background: var(--bg);
   color: var(--text);
-  border-radius: 16px;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   transition: all var(--transition);
+  -webkit-tap-highlight-color: transparent;
   white-space: nowrap;
 }
-.toolbar-btn:active { background: var(--border); }
-.toolbar-btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.bottom-bar-btn:active { background: var(--border); transform: scale(0.96); }
+.bottom-bar-btn.primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+.bottom-bar-btn.active { border-color: var(--primary); color: var(--primary); }
+.bottom-bar-info {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-align: center;
+  position: fixed;
+  bottom: calc(68px + var(--safe-bottom));
+  left: 0; right: 0;
+  z-index: 99;
+  pointer-events: none;
+}
+/* ========== Bottom Toolbar (compact mode indicator) ========== */
 /* ========== Modal ========== */
 .modal-overlay {
   position: fixed; inset: 0;
@@ -475,8 +457,7 @@ body {
 /* ========== Responsive tweaks ========== */
 @media (min-width: 480px) {
   body { max-width: 480px; margin: 0 auto; }
-  .fab { right: calc(50% - 220px); }
-  .fab-left { left: calc(50% - 220px); }
+  .bottom-bar { left: calc(50% - 240px); right: calc(50% - 240px); }
 }
 </style>
 </head>
@@ -503,7 +484,7 @@ body {
 <div class="empty-state" id="emptyState">
   <div class="empty-icon">💰</div>
   <div class="empty-title">还没有添加基金</div>
-  <div class="empty-desc">点击右下角 + 按钮<br>搜索并添加你关注的基金</div>
+  <div class="empty-desc">点击底部 ➕ 添加 按钮<br>搜索并添加你关注的基金</div>
 </div>
 
 <!-- Loading State -->
@@ -515,19 +496,13 @@ body {
   </div></div>
 </div>
 
-<!-- FAB: 排序 -->
-<button class="fab-left" id="btnSort" aria-label="排序" title="切换排序">📊</button>
+<!-- Bottom Action Bar -->
+<div class="bottom-bar-info"><span id="updateTime">等待刷新…</span></div>
 
-<!-- FAB: 添加基金 -->
-<button class="fab" id="btnAdd" aria-label="添加基金">+</button>
-
-<!-- Bottom Toolbar -->
-<div class="toolbar">
-  <div class="toolbar-info">
-    <span id="updateTime">等待刷新…</span>
-  </div>
-  <div class="toolbar-actions">
-  </div>
+<div class="bottom-bar">
+  <button class="bottom-bar-btn" id="btnSort">📊 排序</button>
+  <button class="bottom-bar-btn" id="btnCompact">📋 简洁</button>
+  <button class="bottom-bar-btn primary" id="btnAdd">➕ 添加</button>
 </div>
 
 <!-- Add Fund Modal -->
@@ -568,13 +543,6 @@ body {
             <div class="settings-desc">切换暗色/亮色主题</div>
           </div>
           <div class="toggle" id="toggleTheme"></div>
-        </div>
-        <div class="settings-row">
-          <div>
-            <div class="settings-label">简洁模式</div>
-            <div class="settings-desc">只显示基金名称和涨跌幅</div>
-          </div>
-          <div class="toggle" id="toggleCompact"></div>
         </div>
       </div>
       <div class="settings-section">
@@ -1420,6 +1388,11 @@ const App = {
   async init() {
     Theme.init();
     AppState.compactMode = Storage.getCompactMode();
+    // 初始化简洁按钮状态
+    if (AppState.compactMode) {
+      $('#btnCompact').innerHTML = '📋 详细';
+      $('#btnCompact').classList.add('active');
+    }
     Market.updateUI();
     AppState.funds = Storage.getFunds();
     UI.renderFundList();
@@ -1511,12 +1484,20 @@ const App = {
       toast(settings.autoRefresh ? '已开启自动刷新' : '已关闭自动刷新');
     });
 
-    $('#toggleCompact').addEventListener('click', () => {
+    $('#btnCompact').addEventListener('click', () => {
       AppState.compactMode = !AppState.compactMode;
       Storage.saveCompactMode(AppState.compactMode);
-      $('#toggleCompact').className = 'toggle' + (AppState.compactMode ? ' on' : '');
+      const btn = $('#btnCompact');
+      if (AppState.compactMode) {
+        btn.innerHTML = '📋 详细';
+        btn.classList.add('active');
+        toast('已切换至简洁模式');
+      } else {
+        btn.innerHTML = '📋 简洁';
+        btn.classList.remove('active');
+        toast('已切换至完整模式');
+      }
       UI.renderFundList();
-      toast(AppState.compactMode ? '已切换至简洁模式' : '已切换至完整模式');
     });
 
     // 代理设置
@@ -1661,7 +1642,6 @@ const App = {
     const settings = Storage.getSettings();
     $('#proxyUrl').value = settings.proxyUrl || '';
     $('#toggleAutoRefresh').className = 'toggle' + (settings.autoRefresh ? ' on' : '');
-    $('#toggleCompact').className = 'toggle' + (AppState.compactMode ? ' on' : '');
     $('#settingsModal').style.display = 'flex';
   },
 
@@ -1694,13 +1674,16 @@ const App = {
     AppState.sortOrder = AppState.sortOrder === 0 ? 2 : AppState.sortOrder === 2 ? 1 : 0;
     const btn = $('#btnSort');
     if (AppState.sortOrder === 2) {
-      btn.textContent = '↓';
+      btn.innerHTML = '📊 降序';
+      btn.classList.add('active');
       toast('涨幅降序：涨最多排最前');
     } else if (AppState.sortOrder === 1) {
-      btn.textContent = '↑';
+      btn.innerHTML = '📊 升序';
+      btn.classList.add('active');
       toast('涨幅升序：跌最多排最前');
     } else {
-      btn.textContent = '📊';
+      btn.innerHTML = '📊 排序';
+      btn.classList.remove('active');
       toast('恢复默认顺序');
     }
     UI.renderFundList();
