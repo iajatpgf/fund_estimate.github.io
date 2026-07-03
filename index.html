@@ -926,7 +926,7 @@ const FundData = {
         reject(new Error('净值加载失败: ' + code));
       };
 
-      script.src = 'https://fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
+      script.src = '//fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
       document.head.appendChild(script);
     });
   },
@@ -942,7 +942,7 @@ const FundData = {
 
   // 通过 fetch 直连获取官方净值
   async fetchOfficialDirect(code) {
-    const url = 'https://fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
+    const url = '//fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
     const resp = await fetch(url, { mode: 'cors' });
     const text = await resp.text();
     const trendMatch = text.match(/var Data_netWorthTrend\s*=\s*(\[[\s\S]*?\]);/);
@@ -1062,8 +1062,9 @@ const FundData = {
           if (nav.prevDwjz != null) data.prevDwjz = nav.prevDwjz;
         }
       } catch (e) { /* 静默失败 */ }
+      // 每获取一只就刷新一次界面
+      UI.renderFundList();
     }
-    UI.renderFundList();
   }
 };
 
@@ -1345,7 +1346,7 @@ const App = {
     AppState.funds = Storage.getFunds();
     UI.renderFundList();
     this.bindEvents();
-    await this.refreshAll();
+    await this.refreshAll(true);
     this.startAutoRefresh();
   },
 
@@ -1461,7 +1462,7 @@ const App = {
     });
   },
 
-  async refreshAll() {
+  async refreshAll(waitForNAV = false) {
     if (AppState.isRefreshing) return;
     if (AppState.funds.length === 0) return;
 
@@ -1479,8 +1480,16 @@ const App = {
     UI.updateTimeDisplay();
     Market.updateUI();
 
-    // Phase 2: 后台补充官方净值（不阻塞UI，静默更新）
-    FundData.fetchAllNAV(codes);
+    // Phase 2: 补充官方净值
+    if (waitForNAV) {
+      // 初次加载：等待 Phase 2 完成，确保显示实际涨幅
+      await FundData.fetchAllNAV(codes);
+      UI.renderFundList();
+      UI.updateTimeDisplay();
+    } else {
+      // 自动刷新：后台静默更新
+      FundData.fetchAllNAV(codes);
+    }
   },
 
   addFund(code, name) {
