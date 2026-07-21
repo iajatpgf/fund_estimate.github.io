@@ -461,6 +461,86 @@ body {
 /* ========== Highlight animation ========== */
 @keyframes highlight { 0% { background: var(--primary-bg); } 100% { background: transparent; } }
 .fund-card.highlight { animation: highlight 1s ease; }
+/* ========== Trend Chart (inline in card) ========== */
+.fund-card-detail { padding: 0; }
+.trend-period-selector {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.trend-period-btn {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.trend-period-btn:active { transform: scale(0.95); }
+.trend-period-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.trend-chart-wrap {
+  position: relative;
+  padding: 4px 8px 0;
+}
+.trend-chart-wrap canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.trend-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  gap: 8px;
+}
+.trend-loading .spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.trend-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  gap: 6px;
+}
+.trend-summary {
+  display: flex;
+  justify-content: space-around;
+  padding: 6px 16px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.trend-summary-item { text-align: center; }
+.trend-summary-value {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 1px;
+}
+.trend-summary-value.up { color: var(--up-color); }
+.trend-summary-value.down { color: var(--down-color); }
+.trend-summary-label { font-size: 10px; color: var(--text-tertiary); }
 /* ========== Responsive tweaks ========== */
 @media (min-width: 480px) {
   body { max-width: 480px; margin: 0 auto; }
@@ -1048,7 +1128,7 @@ const FundData = {
         reject(new Error('净值加载失败: ' + code));
       };
 
-      script.src = '//fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
+      script.src = 'https://fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
       document.head.appendChild(script);
     });
   },
@@ -1234,6 +1314,54 @@ const FundData = {
       // 每获取一只就刷新一次界面
       UI.renderFundList();
     }
+  },
+
+  // 获取完整净值历史趋势数据（用于趋势图）
+  fetchTrend(code) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('趋势数据请求超时: ' + code));
+      }, 15000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        delete window.Data_netWorthTrend;
+        delete window.fS_name;
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      script.onload = () => {
+        try {
+          const trend = window.Data_netWorthTrend;
+          const name = window.fS_name;
+          cleanup();
+          if (trend && Array.isArray(trend) && trend.length > 0) {
+            // 过滤掉 y 为 null 的无效数据点
+            const validData = trend.filter(p => p.x != null && p.y != null);
+            if (validData.length === 0) {
+              reject(new Error('无有效净值数据'));
+              return;
+            }
+            resolve({ name: name || '', data: validData });
+            return;
+          }
+          reject(new Error('净值数据为空'));
+        } catch (e) {
+          cleanup();
+          reject(new Error('净值解析失败: ' + e.message));
+        }
+      };
+
+      script.onerror = () => {
+        cleanup();
+        reject(new Error('趋势数据加载失败: ' + code));
+      };
+
+      script.src = 'https://fund.eastmoney.com/pingzhongdata/' + code + '.js?rt=' + Date.now();
+      document.head.appendChild(script);
+    });
   }
 };
 
@@ -1385,6 +1513,7 @@ const AppState = {
   refreshTimer: null,
   isRefreshing: false,
   sortOrder: 0,    // 0=名称升序(默认), 1=涨幅降序, 2=涨幅升序
+  trendCache: {},  // {code: {name, data: [{x, y}, ...], fetchedAt: timestamp}}
 };
 
 // ======================== UI渲染 ========================
@@ -1547,7 +1676,210 @@ const UI = {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     $('#updateTime').textContent = '更新于 ' + timeStr;
+  },
+
+	  // === 趨勢圖 (內嵌於卡片詳情) ===
+
+  loadTrendForCard(code) {
+    const detailEl = document.querySelector('.fund-card[data-code="' + code + '"] .fund-card-detail');
+    if (!detailEl) return;
+
+    const cached = AppState.trendCache[code];
+    this._renderTrendUI(detailEl, code, !!cached);
+
+    if (cached && cached.data && cached.data.length > 0) {
+      this._renderTrendChartInCard(detailEl, cached.data, '1m');
+    } else {
+      FundData.fetchTrend(code).then(result => {
+        AppState.trendCache[code] = { name: result.name, data: result.data, fetchedAt: Date.now() };
+        this._renderTrendUI(detailEl, code, true);
+        this._renderTrendChartInCard(detailEl, result.data, '1m');
+      }).catch(err => {
+        console.warn(err.message);
+        this._showTrendError(detailEl);
+      });
+    }
+  },
+
+  _renderTrendUI(detailEl, code, hasData) {
+    detailEl.innerHTML = '\n' +
+      '<div class="trend-period-selector" data-trend-code="' + code + '">\n' +
+      '  <button class="trend-period-btn active" data-period="1m">近一月</button>\n' +
+      '  <button class="trend-period-btn" data-period="6m">近半年</button>\n' +
+      '  <button class="trend-period-btn" data-period="1y">近一年</button>\n' +
+      '  <button class="trend-period-btn" data-period="3y">近三年</button>\n' +
+      '</div>\n' +
+      '<div class="trend-chart-wrap" id="trendChartWrap_' + code + '" style="' + (hasData ? '' : 'display:none') + '">\n' +
+      '  <canvas id="trendCanvas_' + code + '"></canvas>\n' +
+      '</div>\n' +
+      '<div class="trend-loading" id="trendLoading_' + code + '" style="' + (hasData ? 'display:none' : '') + '">\n' +
+      '  <div class="spinner"></div><span>加载趋势…</span>\n' +
+      '</div>\n' +
+      '<div class="trend-error" id="trendError_' + code + '" style="display:none">\n' +
+      '  <span>⚠️ 趋势数据加载失败</span>\n' +
+      '  <button class="trend-period-btn retry-trend-btn" data-code="' + code + '">重试</button>\n' +
+      '</div>\n' +
+      '<div class="trend-summary" id="trendSummary_' + code + '" style="' + (hasData ? '' : 'display:none') + '"></div>\n' +
+      '<div style="padding:0 16px 12px">\n' +
+      '  <button class="detail-save-btn" data-action="delete" data-code="' + code + '" style="background:#ff4d4f">\u{1f5d1} 删除</button>\n' +
+      '</div>\n' +
+    '';
+  },
+
+  _showTrendError(detailEl) {
+    const wrap = detailEl.querySelector('.trend-chart-wrap');
+    const loading = detailEl.querySelector('.trend-loading');
+    const summary = detailEl.querySelector('.trend-summary');
+    const err = detailEl.querySelector('.trend-error');
+    if (wrap) wrap.style.display = 'none';
+    if (loading) loading.style.display = 'none';
+    if (summary) summary.style.display = 'none';
+    if (err) err.style.display = 'flex';
+  },
+
+  _renderTrendChartInCard(detailEl, data, period) {
+    const code = detailEl.closest('.fund-card').dataset.code;
+    const wrap = detailEl.querySelector('.trend-chart-wrap');
+    const loading = detailEl.querySelector('.trend-loading');
+    const err = detailEl.querySelector('.trend-error');
+    const canvas = detailEl.querySelector('canvas');
+    const summary = detailEl.querySelector('.trend-summary');
+    if (wrap) wrap.style.display = 'block';
+    if (loading) loading.style.display = 'none';
+    if (err) err.style.display = 'none';
+    if (summary) summary.style.display = 'flex';
+    this.drawTrendChart(canvas, data, period, summary);
+  },
+
+  drawTrendChart(canvas, data, period, summaryEl) {
+    if (!data || data.length === 0 || !canvas) return;
+
+    const isDark = document.body.classList.contains('dark');
+    const dpr = window.devicePixelRatio || 1;
+
+    const now = Date.now();
+    let cutoff;
+    switch (period) {
+      case '1m': cutoff = now - 30 * 24 * 3600 * 1000; break;
+      case '6m': cutoff = now - 183 * 24 * 3600 * 1000; break;
+      case '1y': cutoff = now - 365 * 24 * 3600 * 1000; break;
+      case '3y': cutoff = now - 3 * 365 * 24 * 3600 * 1000; break;
+      default: cutoff = now - 30 * 24 * 3600 * 1000;
+    }
+    let filtered = data.filter(p => p.x >= cutoff);
+    if (filtered.length < 2) filtered = data.slice(-30);
+    if (filtered.length < 2) return;
+
+    const points = filtered;
+
+    const cw = canvas.parentElement.clientWidth;
+    const width = Math.min(cw, 480);
+    const height = Math.round(width * 0.55);
+    const pad = { top: 10, right: 10, bottom: 30, left: 46 };
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const textMuted = getComputedStyle(document.body).getPropertyValue('--text-tertiary').trim() || '#bfbfbf';
+    const upColor = getComputedStyle(document.body).getPropertyValue('--up-color').trim() || '#cf1322';
+    const downColor = getComputedStyle(document.body).getPropertyValue('--down-color').trim() || '#389e0d';
+    const bgColor = getComputedStyle(document.body).getPropertyValue('--bg').trim() || (isDark ? '#0d0d1a' : '#f0f2f5');
+    const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
+    const plotW = width - pad.left - pad.right;
+    const plotH = height - pad.top - pad.bottom;
+
+    const yValues = points.map(p => p.y);
+    const yMin = Math.min(...yValues);
+    const yMax = Math.max(...yValues);
+    const yRange = yMax - yMin || 1;
+    const yPad = yRange * 0.08;
+    const chartYMin = yMin - yPad;
+    const chartYMax = yMax + yPad;
+
+    const sx = (x) => pad.left + (x - points[0].x) / (points[points.length - 1].x - points[0].x) * plotW;
+    const sy = (y) => pad.top + plotH - (y - chartYMin) / (chartYMax - chartYMin) * plotH;
+
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, width, height);
+
+    const gl = 4;
+    ctx.strokeStyle = gridColor;
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= gl; i++) {
+      const yv = chartYMin + (chartYMax - chartYMin) * (i / gl);
+      const yp = sy(yv);
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(pad.left, yp); ctx.lineTo(width - pad.right, yp); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = textMuted;
+      ctx.font = '9px -apple-system, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(yv.toFixed(4), pad.left - 4, yp);
+    }
+
+    const firstY = points[0].y, lastY = points[points.length - 1].y;
+    const lc = lastY >= firstY ? upColor : downColor;
+    const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
+    grad.addColorStop(0, lastY >= firstY ? 'rgba(207,19,34,0.10)' : 'rgba(56,158,13,0.10)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top + plotH);
+    for (let i = 0; i < points.length; i++) ctx.lineTo(sx(points[i].x), sy(points[i].y));
+    ctx.lineTo(sx(points[points.length - 1].x), pad.top + plotH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.strokeStyle = lc;
+    ctx.lineWidth = 1.8;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (let i = 0; i < points.length; i++) {
+      const x = sx(points[i].x), y = sy(points[i].y);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = textMuted;
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    let li;
+    switch (period) {
+      case '1m': li = Math.max(1, Math.floor(points.length / 5)); break;
+      case '6m': li = Math.max(1, Math.floor(points.length / 5)); break;
+      case '1y': li = Math.max(1, Math.floor(points.length / 6)); break;
+      case '3y': li = Math.max(1, Math.floor(points.length / 5)); break;
+      default: li = Math.max(1, Math.floor(points.length / 5));
+    }
+    for (let i = 0; i < points.length; i += li) {
+      const d = new Date(points[i].x);
+      ctx.fillText(period === '3y' ? d.getFullYear() + '/' + (d.getMonth() + 1) : (d.getMonth() + 1) + '/' + d.getDate(), sx(points[i].x), pad.top + plotH + 5);
+    }
+
+    if (summaryEl) {
+      const change = lastY - firstY;
+      const pct = (change / firstY * 100);
+      const cls = change >= 0 ? 'up' : 'down';
+      const sign = change >= 0 ? '+' : '';
+      summaryEl.innerHTML = [
+        '<div class="trend-summary-item"><div class="trend-summary-value ', cls, '">', sign, change.toFixed(4), '</div><div class="trend-summary-label">区间涨跌</div></div>',
+        '<div class="trend-summary-item"><div class="trend-summary-value ', cls, '">', sign, pct.toFixed(2), '%</div><div class="trend-summary-label">区间涨幅</div></div>',
+        '<div class="trend-summary-item"><div class="trend-summary-value" style="color:var(--text)">', yMax.toFixed(4), '</div><div class="trend-summary-label">区间最高</div></div>',
+        '<div class="trend-summary-item"><div class="trend-summary-value" style="color:var(--text)">', yMin.toFixed(4), '</div><div class="trend-summary-label">区间最低</div></div>'
+      ].join('');
+    }
   }
+
 };
 
 // ======================== 应用逻辑 ========================
@@ -1612,13 +1944,37 @@ const App = {
       }
       // 点击输入框不触发展开/收起
       if (e.target.tagName === 'INPUT') return;
-      // 点击卡片主体区域展开/收起
+      // 趋势图时间段切换
+      if (e.target.classList.contains('trend-period-btn')) {
+        const period = e.target.dataset.period;
+        // 更新按钮选中态
+        const selector = e.target.closest('.trend-period-selector');
+        selector.querySelectorAll('.trend-period-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        // 重绘图表
+        const cached = AppState.trendCache[code];
+        if (cached && cached.data) {
+          const detailEl = card.querySelector('.fund-card-detail');
+          UI._renderTrendChartInCard(detailEl, cached.data, period);
+        }
+        return;
+      }
+      // 趋势图重试按钮
+      if (e.target.classList.contains('retry-trend-btn')) {
+        UI.loadTrendForCard(code);
+        return;
+      }
+      // 点击卡片主体区域展开/收起 + 加载趋势图
       if (e.target.closest('.fund-card-main')) {
         const fund = AppState.funds.find(f => f.code === code);
         if (fund) {
           fund._expanded = !fund._expanded;
           Storage.saveFunds(AppState.funds);
           UI.renderFundList();
+          // 展开时加载趋势图
+          if (fund._expanded) {
+            UI.loadTrendForCard(code);
+          }
         }
       }
     });
