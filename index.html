@@ -1141,10 +1141,13 @@ const FundData = {
         }
         if (!gzData.name && prev.name) gzData.name = prev.name;
         // 保留估算数据：新数据没有 gsz/gszzl 时继承旧值
-        if ((gzData.gsz == null || gzData.gsz === '') && prev.gsz != null && prev.gsz !== '') {
-          gzData.gsz = prev.gsz;
-          gzData.gszzl = prev.gszzl;
-          gzData.gztime = prev.gztime;
+        // 盘后/刷新时 API 可能只返回净值不返回估值，覆盖会导致估算涨幅丢失
+        if (prev.gszzl != null && prev.gszzl !== '' && prev.gszzl !== '--') {
+          if (gzData.gszzl == null || gzData.gszzl === '' || gzData.gszzl === '--') {
+            gzData.gszzl = prev.gszzl;
+            if (gzData.gsz == null || gzData.gsz === '') gzData.gsz = prev.gsz;
+            if (!gzData.gztime) gzData.gztime = prev.gztime;
+          }
         }
       }
       AppState.valuations[code] = gzData;
@@ -1498,19 +1501,7 @@ const UI = {
         <div class="fund-card-detail">
           <div class="detail-row">
             <span class="detail-label">估算涨幅</span>
-            <span class="detail-value ${val.gszzl != null && val.gszzl !== '' ? (parseFloat(val.gszzl) > 0 ? 'up' : parseFloat(val.gszzl) < 0 ? 'down' : '') : ''}">${val.gszzl != null && val.gszzl !== '' ? (parseFloat(val.gszzl) > 0 ? '↑ ' : parseFloat(val.gszzl) < 0 ? '↓ ' : '') + parseFloat(val.gszzl).toFixed(2) + '%' : '--'}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">估算净值</span>
-            <span class="detail-value">${val.gsz != null && val.gsz !== '' ? parseFloat(val.gsz).toFixed(4) : '--'}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">实际涨幅 (${val.jzrq || '--'})</span>
-            <span class="detail-value ${val.actualChange != null ? (parseFloat(val.actualChange) > 0 ? 'up' : parseFloat(val.actualChange) < 0 ? 'down' : '') : ''}">${val.actualChange != null ? (parseFloat(val.actualChange) > 0 ? '↑ ' : parseFloat(val.actualChange) < 0 ? '↓ ' : '') + parseFloat(val.actualChange).toFixed(2) + '%' : '--'}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">单位净值</span>
-            <span class="detail-value">${val.dwjz != null ? parseFloat(val.dwjz).toFixed(4) : '--'}</span>
+            <span class="detail-value ${(function() { const v = val.gszzl; if (v == null || v === '' || v === '--') return ''; const n = parseFloat(v); if (isNaN(n)) return ''; return n > 0 ? 'up' : n < 0 ? 'down' : ''; })()}">${(function() { const v = val.gszzl; if (v == null || v === '' || v === '--') return '--'; const n = parseFloat(v); if (isNaN(n)) return '--'; return (n > 0 ? '↑ ' : n < 0 ? '↓ ' : '') + n.toFixed(2) + '%'; })()}</span>
           </div>
           <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
             <button class="detail-save-btn" data-action="delete" data-code="${fund.code}" style="background:#ff4d4f">🗑 删除</button>
