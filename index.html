@@ -1500,8 +1500,8 @@ const UI = {
         </div>
         <div class="fund-card-detail">
           <div class="detail-row">
-            <span class="detail-label">估算涨幅</span>
-            <span class="detail-value ${(function() { const v = val.gszzl; if (v == null || v === '' || v === '--') return ''; const n = parseFloat(v); if (isNaN(n)) return ''; return n > 0 ? 'up' : n < 0 ? 'down' : ''; })()}">${(function() { const v = val.gszzl; if (v == null || v === '' || v === '--') return '--'; const n = parseFloat(v); if (isNaN(n)) return '--'; return (n > 0 ? '↑ ' : n < 0 ? '↓ ' : '') + n.toFixed(2) + '%'; })()}</span>
+            <span class="detail-label">${val.gszzl != null && val.gszzl !== '' && val.gszzl !== '--' ? '估算涨幅' : '实际涨幅 (盘后)'}</span>
+            <span class="detail-value ${(function() { const v = val.gszzl != null && val.gszzl !== '' && val.gszzl !== '--' ? val.gszzl : val.actualChange; if (v == null || v === '' || v === '--') return ''; const n = parseFloat(v); if (isNaN(n)) return ''; return n > 0 ? 'up' : n < 0 ? 'down' : ''; })()}">${(function() { const v = val.gszzl != null && val.gszzl !== '' && val.gszzl !== '--' ? val.gszzl : val.actualChange; if (v == null || v === '' || v === '--') return '--'; const n = parseFloat(v); if (isNaN(n)) return '--'; return (n > 0 ? '↑ ' : n < 0 ? '↓ ' : '') + n.toFixed(2) + '%'; })()}</span>
           </div>
           <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
             <button class="detail-save-btn" data-action="delete" data-code="${fund.code}" style="background:#ff4d4f">🗑 删除</button>
@@ -1549,6 +1549,8 @@ const App = {
     Theme.init();
     Market.updateUI();
     AppState.funds = Storage.getFunds();
+    // 初始加载时折叠所有卡片
+    AppState.funds.forEach(f => { f._expanded = false; });
     UI.renderFundList();
     this.bindEvents();
     await this.refreshAll(true);
@@ -1819,6 +1821,9 @@ const App = {
       btn.classList.add('active');
       toast('涨幅升序：跌最多排最前');
     }
+    // 排序时折叠所有卡片
+    AppState.funds.forEach(f => { f._expanded = false; });
+    Storage.saveFunds(AppState.funds);
     UI.renderFundList();
   },
 
