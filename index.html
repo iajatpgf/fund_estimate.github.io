@@ -601,6 +601,7 @@ const FUNDGZ_PROXY = '/api/fundgz';
 const NAV_PROXY = '/api/nav';
 const FUNDLIST_PROXY = '/api/fundlist';
 const FUNDGZ_BASE = 'https://fundgz.1234567.com.cn/js';
+const FUNDMNFINFO_API = 'https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo';
 const FUNDCODE_URL = 'https://fund.eastmoney.com/js/fundcode_search.js';
 
 // 交易时间判断 (北京时间)
@@ -861,7 +862,68 @@ const FundData = {
     return JSON.parse(text);
   },
 
-  // ---- 同源代理方式（利用 Netlify/Vercel rewrites，无需手动配置代理） ----
+  // ---- 新 API：东方财富手机端接口（支持 CORS，无需代理） ----
+
+  _deviceId: 'fund_app_' + Math.random().toString(36).slice(2, 10),
+
+  getDeviceId() {
+    return this._deviceId;
+  },
+
+  // 通过手机端 API 获取单只基金估值
+  async fetchOneViaMobAPI(code) {
+    const url = FUNDMNFINFO_API + '?pageIndex=1&pageSize=1&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=' +
+      this._deviceId + '&Fcodes=' + code;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('手机端API请求失败: ' + resp.status);
+    const json = await resp.json();
+    if (!json.Datas || !json.Datas.length) throw new Error('手机端API返回空数据');
+    return this._mapMobData(json.Datas[0]);
+  },
+
+  // 批量获取基金估值（一次请求）
+  async fetchAllViaMobAPI(codes) {
+    const url = FUNDMNFINFO_API + '?pageIndex=1&pageSize=200&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=' +
+      this._deviceId + '&Fcodes=' + codes.join(',');
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('手机端批量API请求失败: ' + resp.status);
+    const json = await resp.json();
+    if (!json.Datas) throw new Error('手机端批量API返回空数据');
+    return json.Datas.map(d => this._mapMobData(d)).filter(Boolean);
+  },
+
+  // 将手机端 API 响应映射为现有数据格式
+  _mapMobData(val) {
+    if (!val || !val.FCODE) return null;
+    const data = {
+      fundcode: val.FCODE,
+      name: val.SHORTNAME || '',
+      jzrq: val.PDATE || '',
+      dwjz: val.NAV || '',
+      gsz: null,
+      gszzl: null,
+      gztime: null,
+      _error: null
+    };
+    // 交易时段：有实时估值 GSZ/GSZZL/GZTIME
+    if (val.GSZ != null && val.GSZ !== '') {
+      data.gsz = val.GSZ;
+      data.gszzl = val.GSZZL;
+      data.gztime = val.GZTIME;
+    }
+    // 盘后：PDATE == GZTIME 时用 NAV 作为当日数据
+    if (val.PDATE && val.GZTIME && val.PDATE !== '--' && val.PDATE === val.GZTIME.substr(0, 10)) {
+      data.gsz = val.NAV;
+      data.gszzl = val.NAVCHGRT || null;
+    }
+    // 计算实际涨跌幅
+    if (val.NAVCHGRT != null && val.NAVCHGRT !== '') {
+      data.actualChange = String(val.NAVCHGRT);
+    }
+    return data;
+  },
+
+  // ---- 旧 API 方式（已停用 / 备用） ----
 
   // 通过同源 /api/fundgz/:code 获取估值
   async fetchOneViaNetlify(code) {
@@ -1023,58 +1085,66 @@ const FundData = {
   },
 
   // 获取官方最新净值（公开披露净值，非估值）
+  // 新 API 已返回 NAV/NAVCHGRT/PublishDate，优先使用
   async fetchOfficialNAV(code) {
     const settings = Storage.getSettings();
     // 1. 用户手动配置的代理优先
     if (settings.proxyUrl) {
       try { return await this.fetchOfficialViaProxy(code, settings.proxyUrl); } catch (e) {}
     }
-    // 2. 同源 Netlify/Vercel 代理（通过 /api/nav/:code）
+    // 2. 新手机端 API（已含净值信息）
+    try {
+      const mobData = await this.fetchOneViaMobAPI(code);
+      if (mobData && mobData.dwjz) {
+        return { dwjz: mobData.dwjz, jzrq: mobData.jzrq, name: mobData.name, actualChange: mobData.actualChange };
+      }
+    } catch (e) {}
+    // 3. 同源 Netlify/Vercel 代理（通过 /api/nav/:code）
     try { return await this.fetchOfficialViaNetlify(code); } catch (e) {}
-    // 3. 直连 fetch
+    // 4. 直连 fetch
     try { return await this.fetchOfficialDirect(code); } catch (e) {}
-    // 4. JSONP 兜底
+    // 5. JSONP 兜底
     try { return await this.fetchOfficialJSONP(code); } catch (e) {}
     return null;
   },
 
-  // 智能获取: 同源代理 > 用户代理 > 直连 > JSONP
+  // 智能获取: 新手机端API > 用户代理 > 同源代理 > 直连 > JSONP
   async fetchOne(code) {
     const settings = Storage.getSettings();
     // 1. 用户手动配置的代理优先
     if (settings.proxyUrl) {
       try { return await this.fetchOneProxy(code, settings.proxyUrl); } catch (e) {}
     }
-    // 2. 尝试同源 Netlify/Vercel 代理（https 页面下 JSONP 会被阻断）
+    // 2. 东方财富手机端 API（主方法，支持 CORS）
+    try { return await this.fetchOneViaMobAPI(code); } catch (e) {}
+    // 3. 同源 Netlify/Vercel 代理（备用）
     try { return await this.fetchOneViaNetlify(code); } catch (e) {}
-    // 3. 尝试直连 fetch（大部分情况因 CORS 失败）
+    // 4. 直连 fetch（CORS，大部分情况失败）
     try { return await this.fetchOneDirect(code); } catch (e) {}
-    // 4. 兜底：JSONP（浏览器可能因 Mixed Content 阻断）
+    // 5. 兜底：JSONP
     return this.fetchOneJSONP(code);
   },
 
-  // 批量获取估值数据（fundgz，直接更新 AppState.valuations）
+  // 批量获取估值数据（新 API：东方财富手机端，支持 CORS，一次请求所有基金）
   async fetchAllGZ(codes, onEach) {
     const settings = Storage.getSettings();
 
     const mergeInto = (code, gzData) => {
       const prev = AppState.valuations[code];
-      // 保留 Phase 2 补充的实际涨幅数据（pingzhongdata 更新更及时）
+      // 已有的实际涨幅优先保留（更准确）
       if (prev && !prev._error) {
-        if (prev.actualChange != null) gzData.actualChange = prev.actualChange;
+        if (prev.actualChange != null && gzData.actualChange == null) gzData.actualChange = prev.actualChange;
         if (prev.prevDwjz != null) gzData.prevDwjz = prev.prevDwjz;
-        // 保留更准确的 jzrq / dwjz
         if (prev.jzrq && (!gzData.jzrq || prev.jzrq > gzData.jzrq)) {
           gzData.dwjz = prev.dwjz;
           gzData.jzrq = prev.jzrq;
         }
-        // 保留更准确的基金名称
         if (!gzData.name && prev.name) gzData.name = prev.name;
       }
       AppState.valuations[code] = gzData;
     };
 
-    // 有代理：并行获取
+    // 方式1：手动代理
     if (settings.proxyUrl) {
       const promises = codes.map(async (code) => {
         try {
@@ -1090,15 +1160,33 @@ const FundData = {
       return;
     }
 
-    // 无手动代理：同源代理 > 直连 > JSONP，逐只更新
+    // 方式2：东方财富手机端 API（主方法，支持 CORS）
+    try {
+      const allData = await this.fetchAllViaMobAPI(codes);
+      for (const data of allData) {
+        if (data && data.fundcode) {
+          mergeInto(data.fundcode, data);
+        }
+        if (onEach && data && data.fundcode) onEach(data.fundcode);
+      }
+      // 处理 API 未返回的基金（标记为加载失败）
+      for (const code of codes) {
+        if (!AppState.valuations[code]) {
+          AppState.valuations[code] = { _error: 'API未返回该基金数据' };
+          if (onEach) onEach(code);
+        }
+      }
+      return;
+    } catch (e) {
+      console.warn('新API批量请求失败，回退到逐只请求:', e.message);
+    }
+
+    // 回退：逐只请求
     for (const code of codes) {
       try {
         let data;
-        // 1) 尝试同源 Netlify/Vercel 代理
-        try { data = await this.fetchOneViaNetlify(code); } catch (e) {
-          // 2) 同源代理不可用，尝试直连 fetch
+        try { data = await this.fetchOneViaMobAPI(code); } catch (e) {
           try { data = await this.fetchOneDirect(code); } catch (e2) {
-            // 3) 兜底 JSONP
             data = await this.fetchOneJSONP(code);
           }
         }
