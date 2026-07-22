@@ -651,6 +651,18 @@ body {
                  placeholder="留空使用直连（JSONP方式）"
                  style="width:100%;font-size:13px">
         </div>
+        <div class="settings-row" style="margin-top:16px">
+          <div>
+            <div class="settings-label">太一数据 API Key</div>
+            <div class="settings-desc">用于获取盘中实时估值；密钥仅保存在当前浏览器</div>
+          </div>
+        </div>
+        <div style="margin-top:8px">
+          <input type="password" class="search-input" id="taiyiApiKey"
+                 placeholder="sk-..."
+                 autocomplete="off"
+                 style="width:100%;font-size:13px">
+        </div>
       </div>
       <div class="settings-section">
         <div class="settings-section-title">数据管理</div>
@@ -689,6 +701,7 @@ const NAV_PROXY = '/api/nav';
 const FUNDLIST_PROXY = '/api/fundlist';
 const FUNDGZ_BASE = 'https://fundgz.1234567.com.cn/js';
 const FUNDMNFINFO_API = 'https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo';
+const TAIYI_REALTIME_VALUATION_API = 'https://api.wanxingai.com/openapi/get_fund_realtime_valuation/';
 const FUNDCODE_URL = 'https://fund.eastmoney.com/js/fundcode_search.js';
 
 // 交易时间判断 (北京时间)
@@ -766,8 +779,8 @@ const Storage = {
   getSettings() {
     try {
       const raw = localStorage.getItem(SETTINGS_KEY);
-      return raw ? JSON.parse(raw) : { autoRefresh: true, proxyUrl: '' };
-    } catch (e) { return { autoRefresh: true, proxyUrl: '' }; }
+      return raw ? JSON.parse(raw) : { autoRefresh: true, proxyUrl: '', taiyiApiKey: '' };
+    } catch (e) { return { autoRefresh: true, proxyUrl: '', taiyiApiKey: '' }; }
   },
 
   saveSettings(s) {
@@ -947,6 +960,54 @@ const FundData = {
     const match = text.match(/jsonpgz\((.+)\)/);
     if (match) return JSON.parse(match[1]);
     return JSON.parse(text);
+  },
+
+  // 太一数据：盘中分钟级基金估值。基金代码需带 .OF 后缀。
+  async fetchAllViaTaiyiAPI(codes, apiKey) {
+    if (!apiKey) return [];
+    const resp = await fetch(TAIYI_REALTIME_VALUATION_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey
+      },
+      body: JSON.stringify({
+        fund_codes: codes.map(code => code + '.OF').join(','),
+        outputpara: 'changeRatioValuation:Y,realTimeValuation:Y',
+        only_latest: '1'
+      })
+    });
+    const json = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      const message = json && (json.message || json.detail || json.error);
+      throw new Error('太一数据请求失败: ' + (message || resp.status));
+    }
+    const rows = Array.isArray(json) ? json :
+      (Array.isArray(json && json.data) ? json.data : (Array.isArray(json && json.Datas) ? json.Datas : []));
+    return rows.map(row => this._mapTaiyiData(row)).filter(Boolean);
+  },
+
+  // 文档中的 table 是按字段组织的数组；这里兼容常见的标量/数组两种返回形式。
+  _mapTaiyiData(row) {
+    if (!row) return null;
+    const code = String(row.fundcode || row.FCODE || '').replace(/\.OF$/i, '');
+    if (!code) return null;
+    const table = row.table || row;
+    const last = value => Array.isArray(value) ? value[value.length - 1] : value;
+    const gsz = last(table.realTimeValuation);
+    const gszzl = last(table.changeRatioValuation);
+    if (gsz == null && gszzl == null) return null;
+    const time = last(row.time || table.time);
+    return {
+      fundcode: code,
+      name: '',
+      jzrq: '',
+      dwjz: '',
+      gsz: gsz == null ? null : String(gsz),
+      gszzl: gszzl == null ? null : String(gszzl),
+      gztime: time || null,
+      _error: null
+    };
   },
 
   // ---- 新 API：东方财富手机端接口（支持 CORS，无需代理） ----
@@ -1198,11 +1259,18 @@ const FundData = {
   // 智能获取: 新手机端API > 用户代理 > 同源代理 > 直连 > JSONP
   async fetchOne(code) {
     const settings = Storage.getSettings();
-    // 1. 用户手动配置的代理优先
+    // 1. 太一数据（盘中实时估值）
+    if (settings.taiyiApiKey) {
+      try {
+        const rows = await this.fetchAllViaTaiyiAPI([code], settings.taiyiApiKey);
+        if (rows.length) return rows[0];
+      } catch (e) { console.warn('太一数据请求失败:', e.message); }
+    }
+    // 2. 用户手动配置的代理
     if (settings.proxyUrl) {
       try { return await this.fetchOneProxy(code, settings.proxyUrl); } catch (e) {}
     }
-    // 2. 东方财富手机端 API（主方法，支持 CORS）
+    // 3. 东方财富手机端 API（仅官方净值/实际涨跌）
     try { return await this.fetchOneViaMobAPI(code); } catch (e) {}
     // 3. 同源 Netlify/Vercel 代理（备用）
     try { return await this.fetchOneViaNetlify(code); } catch (e) {}
@@ -1240,7 +1308,20 @@ const FundData = {
       AppState.valuations[code] = gzData;
     };
 
-    // 方式1：手动代理
+    // 方式1：太一数据。盘后会返回空数组，此时继续获取官方净值。
+    if (settings.taiyiApiKey) {
+      try {
+        const allData = await this.fetchAllViaTaiyiAPI(codes, settings.taiyiApiKey);
+        for (const data of allData) {
+          mergeInto(data.fundcode, data);
+          if (onEach) onEach(data.fundcode);
+        }
+      } catch (e) {
+        console.warn('太一数据批量请求失败，回退到官方净值:', e.message);
+      }
+    }
+
+    // 方式2：手动代理
     if (settings.proxyUrl) {
       const promises = codes.map(async (code) => {
         try {
@@ -1256,7 +1337,7 @@ const FundData = {
       return;
     }
 
-    // 方式2：东方财富手机端 API（主方法，支持 CORS）
+    // 方式3：东方财富手机端 API（补充官方净值/实际涨跌）
     try {
       const allData = await this.fetchAllViaMobAPI(codes);
       for (const data of allData) {
@@ -2010,6 +2091,13 @@ const App = {
       Storage.saveSettings(settings);
     });
 
+    $('#taiyiApiKey').addEventListener('change', (e) => {
+      const settings = Storage.getSettings();
+      settings.taiyiApiKey = e.target.value.trim();
+      Storage.saveSettings(settings);
+      toast(settings.taiyiApiKey ? '太一数据 API Key 已保存' : '已清除太一数据 API Key');
+    });
+
     // 导出
     $('#btnExport').addEventListener('click', () => this.exportData());
     // 导入
@@ -2139,6 +2227,7 @@ const App = {
   openSettingsModal() {
     const settings = Storage.getSettings();
     $('#proxyUrl').value = settings.proxyUrl || '';
+    $('#taiyiApiKey').value = settings.taiyiApiKey || '';
     $('#toggleAutoRefresh').className = 'toggle' + (settings.autoRefresh ? ' on' : '');
     $('#settingsModal').style.display = 'flex';
   },
