@@ -651,18 +651,6 @@ body {
                  placeholder="留空使用直连（JSONP方式）"
                  style="width:100%;font-size:13px">
         </div>
-        <div class="settings-row" style="margin-top:16px">
-          <div>
-            <div class="settings-label">太一数据 API Key</div>
-            <div class="settings-desc">用于获取盘中实时估值；密钥仅保存在当前浏览器</div>
-          </div>
-        </div>
-        <div style="margin-top:8px">
-          <input type="password" class="search-input" id="taiyiApiKey"
-                 placeholder="sk-..."
-                 autocomplete="off"
-                 style="width:100%;font-size:13px">
-        </div>
       </div>
       <div class="settings-section">
         <div class="settings-section-title">数据管理</div>
@@ -695,13 +683,20 @@ const FUND_LIST_CACHE_KEY = 'fund_list_cache';
 const FUND_LIST_CACHE_TIME = 'fund_list_cache_time';
 const THEME_KEY = 'fund_app_theme';
 const SETTINGS_KEY = 'fund_app_settings';
+const SIMULATION_SNAPSHOT_KEY = 'fund_simulation_snapshots';
 
 const FUNDGZ_PROXY = '/api/fundgz';
 const NAV_PROXY = '/api/nav';
 const FUNDLIST_PROXY = '/api/fundlist';
+const FUNDMNFINFO_PROXY = '/api/fundinfo';
+const FUND_POSITION_PROXY = '/api/fundposition';
+const STOCK_QUOTE_PROXY = '/api/stockquotes';
+const SINA_ESTIMATE_PROXY = '/api/sinaestimate';
 const FUNDGZ_BASE = 'https://fundgz.1234567.com.cn/js';
 const FUNDMNFINFO_API = 'https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo';
-const TAIYI_REALTIME_VALUATION_API = 'https://api.wanxingai.com/openapi/get_fund_realtime_valuation/';
+const FUND_POSITION_API = 'https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition';
+const STOCK_QUOTE_API = 'https://push2.eastmoney.com/api/qt/ulist.np/get';
+const SINA_ESTIMATE_API = 'https://stock.finance.sina.com.cn/fundInfo/api/openapi.php/FdFundService.getEstimateNetworthPic';
 const FUNDCODE_URL = 'https://fund.eastmoney.com/js/fundcode_search.js';
 
 // 交易时间判断 (北京时间)
@@ -715,6 +710,14 @@ const LUNCH_END_HOUR = 13;
 // ======================== 工具函数 ========================
 function $(sel) { return document.querySelector(sel); }
 function $$(sel) { return document.querySelectorAll(sel); }
+
+function beijingDate() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.filter(p => p.type !== 'literal').map(p => [p.type, p.value]));
+  return value.year + '-' + value.month + '-' + value.day;
+}
 
 function fmtMoney(n) {
   if (n == null || isNaN(n)) return '--';
@@ -779,12 +782,24 @@ const Storage = {
   getSettings() {
     try {
       const raw = localStorage.getItem(SETTINGS_KEY);
-      return raw ? JSON.parse(raw) : { autoRefresh: true, proxyUrl: '', taiyiApiKey: '' };
-    } catch (e) { return { autoRefresh: true, proxyUrl: '', taiyiApiKey: '' }; }
+      return raw ? JSON.parse(raw) : { autoRefresh: true, proxyUrl: '' };
+    } catch (e) { return { autoRefresh: true, proxyUrl: '' }; }
   },
 
   saveSettings(s) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  },
+
+  saveSimulationSnapshot(code, snapshot) {
+    try {
+      const all = JSON.parse(localStorage.getItem(SIMULATION_SNAPSHOT_KEY) || '{}');
+      const date = beijingDate();
+      all[date] = all[date] || {};
+      all[date][code] = snapshot;
+      const dates = Object.keys(all).sort();
+      while (dates.length > 14) delete all[dates.shift()];
+      localStorage.setItem(SIMULATION_SNAPSHOT_KEY, JSON.stringify(all));
+    } catch (e) { /* localStorage 不可用时仅保留内存数据 */ }
   },
 
   getTheme() {
@@ -962,55 +977,7 @@ const FundData = {
     return JSON.parse(text);
   },
 
-  // 太一数据：盘中分钟级基金估值。基金代码需带 .OF 后缀。
-  async fetchAllViaTaiyiAPI(codes, apiKey) {
-    if (!apiKey) return [];
-    const resp = await fetch(TAIYI_REALTIME_VALUATION_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + apiKey
-      },
-      body: JSON.stringify({
-        fund_codes: codes.map(code => code + '.OF').join(','),
-        outputpara: 'changeRatioValuation:Y,realTimeValuation:Y',
-        only_latest: '1'
-      })
-    });
-    const json = await resp.json().catch(() => null);
-    if (!resp.ok) {
-      const message = json && (json.message || json.detail || json.error);
-      throw new Error('太一数据请求失败: ' + (message || resp.status));
-    }
-    const rows = Array.isArray(json) ? json :
-      (Array.isArray(json && json.data) ? json.data : (Array.isArray(json && json.Datas) ? json.Datas : []));
-    return rows.map(row => this._mapTaiyiData(row)).filter(Boolean);
-  },
-
-  // 文档中的 table 是按字段组织的数组；这里兼容常见的标量/数组两种返回形式。
-  _mapTaiyiData(row) {
-    if (!row) return null;
-    const code = String(row.fundcode || row.FCODE || '').replace(/\.OF$/i, '');
-    if (!code) return null;
-    const table = row.table || row;
-    const last = value => Array.isArray(value) ? value[value.length - 1] : value;
-    const gsz = last(table.realTimeValuation);
-    const gszzl = last(table.changeRatioValuation);
-    if (gsz == null && gszzl == null) return null;
-    const time = last(row.time || table.time);
-    return {
-      fundcode: code,
-      name: '',
-      jzrq: '',
-      dwjz: '',
-      gsz: gsz == null ? null : String(gsz),
-      gszzl: gszzl == null ? null : String(gszzl),
-      gztime: time || null,
-      _error: null
-    };
-  },
-
-  // ---- 新 API：东方财富手机端接口（支持 CORS，无需代理） ----
+  // ---- 东方财富移动端接口（参考 funds-3.4.4，返回盘中 GSZ/GSZZL/GZTIME） ----
 
   _deviceId: 'fund_app_' + Math.random().toString(36).slice(2, 10),
 
@@ -1020,9 +987,15 @@ const FundData = {
 
   // 通过手机端 API 获取单只基金估值
   async fetchOneViaMobAPI(code) {
-    const url = FUNDMNFINFO_API + '?pageIndex=1&pageSize=1&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=' +
-      this._deviceId + '&Fcodes=' + code;
-    const resp = await fetch(url);
+    const params = '?pageIndex=1&pageSize=1&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=' +
+      this._deviceId + '&Fcodes=' + encodeURIComponent(code);
+    let resp;
+    try {
+      resp = await fetch(FUNDMNFINFO_PROXY + params);
+      if (!resp.ok) throw new Error(String(resp.status));
+    } catch (e) {
+      resp = await fetch(FUNDMNFINFO_API + params);
+    }
     if (!resp.ok) throw new Error('手机端API请求失败: ' + resp.status);
     const json = await resp.json();
     if (!json.Datas || !json.Datas.length) throw new Error('手机端API返回空数据');
@@ -1031,9 +1004,15 @@ const FundData = {
 
   // 批量获取基金估值（一次请求）
   async fetchAllViaMobAPI(codes) {
-    const url = FUNDMNFINFO_API + '?pageIndex=1&pageSize=200&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=' +
-      this._deviceId + '&Fcodes=' + codes.join(',');
-    const resp = await fetch(url);
+    const params = '?pageIndex=1&pageSize=200&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=' +
+      this._deviceId + '&Fcodes=' + encodeURIComponent(codes.join(','));
+    let resp;
+    try {
+      resp = await fetch(FUNDMNFINFO_PROXY + params);
+      if (!resp.ok) throw new Error(String(resp.status));
+    } catch (e) {
+      resp = await fetch(FUNDMNFINFO_API + params);
+    }
     if (!resp.ok) throw new Error('手机端批量API请求失败: ' + resp.status);
     const json = await resp.json();
     if (!json.Datas) throw new Error('手机端批量API返回空数据');
@@ -1069,6 +1048,133 @@ const FundData = {
       data.actualChange = String(val.NAVCHGRT);
     }
     return data;
+  },
+
+  // 新浪基金估算接口（与 v3.4.4 插件实际使用的接口一致）。
+  async fetchOneViaSinaEstimate(code) {
+    const url = '?symbol=' + encodeURIComponent(code) + '&_=' + Date.now();
+    let resp;
+    try {
+      resp = await fetch(SINA_ESTIMATE_PROXY + url);
+      if (!resp.ok) throw new Error(String(resp.status));
+    } catch (e) {
+      resp = await fetch(SINA_ESTIMATE_API + url);
+    }
+    if (!resp.ok) throw new Error('新浪估值接口请求失败: ' + resp.status);
+    const json = await resp.json();
+    const data = json && json.result && json.result.data;
+    const status = json && json.result && json.result.status;
+    if (!data || (status && Number(status.code) !== 0) || data.worth_rate == null) {
+      throw new Error('新浪估值接口未返回估值');
+    }
+    const date = String(data.worth_date || '');
+    const jzrq = /^\d{8}$/.test(date) ? date.slice(0, 4) + '-' + date.slice(4, 6) + '-' + date.slice(6, 8) : '';
+    return {
+      fundcode: code,
+      name: '',
+      jzrq,
+      dwjz: '',
+      gsz: data.worth == null ? null : String(data.worth),
+      // 新浪接口用小数表示比例，现有页面统一使用百分数。
+      gszzl: String(Number(data.worth_rate) * 100),
+      gztime: date || null,
+      estimateSource: 'sina',
+      _error: null
+    };
+  },
+
+  async fetchAllViaSinaEstimate(codes, mergeInto, onEach) {
+    await Promise.all(codes.map(async code => {
+      try {
+        const data = await this.fetchOneViaSinaEstimate(code);
+        mergeInto(code, data);
+        if (onEach) onEach(code);
+      } catch (e) {
+        console.warn('新浪估值获取失败 (' + code + '):', e.message);
+      }
+    }));
+  },
+
+  // 以最近一次公开披露的股票持仓，结合股票实时涨跌幅计算模拟估算。
+  // 这不是基金公司实时净值：未披露仓位、债券、现金及调仓都会产生误差。
+  async fetchHoldings(code) {
+    const cached = AppState.holdingCache[code];
+    if (cached && Date.now() - cached.fetchedAt < 8 * 3600 * 1000) return cached;
+    const params = '?FCODE=' + encodeURIComponent(code) +
+      '&deviceid=Wap&plat=Wap&product=EFund&version=2.0.0&Uid=';
+    let resp;
+    try {
+      resp = await fetch(FUND_POSITION_PROXY + params);
+      if (!resp.ok) throw new Error(String(resp.status));
+    } catch (e) {
+      resp = await fetch(FUND_POSITION_API + params);
+    }
+    if (!resp.ok) throw new Error('持仓接口请求失败: ' + resp.status);
+    const json = await resp.json();
+    const stocks = json && json.Datas && Array.isArray(json.Datas.fundStocks) ? json.Datas.fundStocks : [];
+    if (!stocks.length) throw new Error('未披露可用于模拟的股票持仓');
+    const data = { stocks, expansion: (json && json.Expansion) || '', fetchedAt: Date.now() };
+    AppState.holdingCache[code] = data;
+    return data;
+  },
+
+  async fetchStockQuotes(secids) {
+    if (!secids.length) return new Map();
+    const params = '?fields=f2,f3,f12,f13,f14&fltt=2&secids=' + encodeURIComponent(secids.join(','));
+    let resp;
+    try {
+      resp = await fetch(STOCK_QUOTE_PROXY + params);
+      if (!resp.ok) throw new Error(String(resp.status));
+    } catch (e) {
+      resp = await fetch(STOCK_QUOTE_API + params);
+    }
+    if (!resp.ok) throw new Error('股票行情接口请求失败: ' + resp.status);
+    const json = await resp.json();
+    const quotes = json && json.data && Array.isArray(json.data.diff) ? json.data.diff : [];
+    return new Map(quotes.map(quote => [String(quote.f13) + '.' + String(quote.f12), quote]));
+  },
+
+  async fetchAllSimulatedEstimates(codes, onEach) {
+    const holdings = await Promise.all(codes.map(async code => {
+      try { return [code, await this.fetchHoldings(code)]; }
+      catch (error) { return [code, null, error]; }
+    }));
+    const secids = [...new Set(holdings.flatMap(([, data]) => (data ? data.stocks : [])
+      .map(stock => String(stock.NEWTEXCH || stock.TEXCH) + '.' + String(stock.GPDM))))];
+    const quotes = new Map();
+    for (let i = 0; i < secids.length; i += 100) {
+      const part = await this.fetchStockQuotes(secids.slice(i, i + 100));
+      part.forEach((quote, secid) => quotes.set(secid, quote));
+    }
+    for (const [code, data] of holdings) {
+      if (!data || !AppState.valuations[code] || AppState.valuations[code]._error) continue;
+      let weightedChange = 0;
+      let coverage = 0;
+      data.stocks.forEach(stock => {
+        const weight = parseFloat(stock.JZBL);
+        const secid = String(stock.NEWTEXCH || stock.TEXCH) + '.' + String(stock.GPDM);
+        const quote = quotes.get(secid);
+        const change = quote && parseFloat(quote.f3);
+        if (isFinite(weight) && isFinite(change)) {
+          weightedChange += weight * change / 100;
+          coverage += weight;
+        }
+      });
+      if (coverage > 0) {
+        const val = AppState.valuations[code];
+        val.simulatedChange = weightedChange.toFixed(2);
+        val.simulatedCoverage = coverage.toFixed(2);
+        val.simulatedAsOf = data.expansion || '';
+        val.simulatedDate = beijingDate();
+        Storage.saveSimulationSnapshot(code, {
+          change: val.simulatedChange,
+          coverage: val.simulatedCoverage,
+          asOf: val.simulatedAsOf,
+          capturedAt: Date.now()
+        });
+        if (onEach) onEach(code);
+      }
+    }
   },
 
   // ---- 旧 API 方式（已停用 / 备用） ----
@@ -1256,34 +1362,28 @@ const FundData = {
     return null;
   },
 
-  // 智能获取: 新手机端API > 用户代理 > 同源代理 > 直连 > JSONP
+  // 单只基金优先使用插件实际采用的新浪估值接口。
   async fetchOne(code) {
     const settings = Storage.getSettings();
-    // 1. 太一数据（盘中实时估值）
-    if (settings.taiyiApiKey) {
-      try {
-        const rows = await this.fetchAllViaTaiyiAPI([code], settings.taiyiApiKey);
-        if (rows.length) return rows[0];
-      } catch (e) { console.warn('太一数据请求失败:', e.message); }
-    }
-    // 2. 用户手动配置的代理
+    // 1. 新浪盘中估值
+    try { return await this.fetchOneViaSinaEstimate(code); } catch (e) {}
+    // 2. 东方财富移动端接口（补充官方净值）
+    try { return await this.fetchOneViaMobAPI(code); } catch (e) {}
+    // 3. 用户手动配置的旧兼容代理
     if (settings.proxyUrl) {
       try { return await this.fetchOneProxy(code, settings.proxyUrl); } catch (e) {}
     }
-    // 3. 东方财富手机端 API（仅官方净值/实际涨跌）
-    try { return await this.fetchOneViaMobAPI(code); } catch (e) {}
-    // 3. 同源 Netlify/Vercel 代理（备用）
+    // 4. 同源 Netlify/Vercel 代理（备用）
     try { return await this.fetchOneViaNetlify(code); } catch (e) {}
-    // 4. 直连 fetch（CORS，大部分情况失败）
+    // 5. 直连 fetch（CORS，大部分情况失败）
     try { return await this.fetchOneDirect(code); } catch (e) {}
-    // 5. 兜底：JSONP
+    // 6. 兜底：JSONP
     return this.fetchOneJSONP(code);
   },
 
   // 批量获取估值数据（新 API：东方财富手机端，支持 CORS，一次请求所有基金）
   async fetchAllGZ(codes, onEach) {
     const settings = Storage.getSettings();
-
     const mergeInto = (code, gzData) => {
       const prev = AppState.valuations[code];
       // 已有的实际涨幅优先保留（更准确）
@@ -1308,36 +1408,7 @@ const FundData = {
       AppState.valuations[code] = gzData;
     };
 
-    // 方式1：太一数据。盘后会返回空数组，此时继续获取官方净值。
-    if (settings.taiyiApiKey) {
-      try {
-        const allData = await this.fetchAllViaTaiyiAPI(codes, settings.taiyiApiKey);
-        for (const data of allData) {
-          mergeInto(data.fundcode, data);
-          if (onEach) onEach(data.fundcode);
-        }
-      } catch (e) {
-        console.warn('太一数据批量请求失败，回退到官方净值:', e.message);
-      }
-    }
-
-    // 方式2：手动代理
-    if (settings.proxyUrl) {
-      const promises = codes.map(async (code) => {
-        try {
-          const data = await this.fetchOneProxy(code, settings.proxyUrl);
-          mergeInto(code, data);
-        } catch (err) {
-          if (!AppState.valuations[code]) AppState.valuations[code] = { _error: err.message };
-          else AppState.valuations[code]._error = err.message;
-        }
-        if (onEach) onEach(code);
-      });
-      await Promise.all(promises);
-      return;
-    }
-
-    // 方式3：东方财富手机端 API（补充官方净值/实际涨跌）
+    // 方式1：东方财富移动端 API（funds-3.4.4 使用的实时估值接口）
     try {
       const allData = await this.fetchAllViaMobAPI(codes);
       for (const data of allData) {
@@ -1353,16 +1424,26 @@ const FundData = {
           if (onEach) onEach(code);
         }
       }
+      // 使用 v3.4.4 插件实际调用的新浪估值接口补充盘中估值。
+      try {
+        await this.fetchAllViaSinaEstimate(codes, mergeInto, onEach);
+      } catch (e) {
+        console.warn('新浪估值批量请求失败:', e.message);
+      }
       return;
     } catch (e) {
-      console.warn('新API批量请求失败，回退到逐只请求:', e.message);
+      console.warn('东方财富移动端接口批量请求失败，回退到逐只请求:', e.message);
     }
 
     // 回退：逐只请求
     for (const code of codes) {
       try {
         let data;
-        try { data = await this.fetchOneViaMobAPI(code); } catch (e) {
+        try {
+          data = settings.proxyUrl
+            ? await this.fetchOneProxy(code, settings.proxyUrl)
+            : await this.fetchOneViaMobAPI(code);
+        } catch (e) {
           try { data = await this.fetchOneDirect(code); } catch (e2) {
             data = await this.fetchOneJSONP(code);
           }
@@ -1373,6 +1454,13 @@ const FundData = {
         else AppState.valuations[code]._error = err.message;
       }
       if (onEach) onEach(code);
+    }
+
+    // 即使东方财富批量接口失败，也仍然尝试插件实际使用的新浪估值接口。
+    try {
+      await this.fetchAllViaSinaEstimate(codes, mergeInto, onEach);
+    } catch (e) {
+      console.warn('新浪估值批量请求失败:', e.message);
     }
   },
 
@@ -1595,10 +1683,24 @@ const AppState = {
   isRefreshing: false,
   sortOrder: 0,    // 0=名称升序(默认), 1=涨幅降序, 2=涨幅升序
   trendCache: {},  // {code: {name, data: [{x, y}, ...], fetchedAt: timestamp}}
+  trendLoading: {},
+  trendPeriods: {},
+  holdingCache: {}, // {code: {stocks, expansion, fetchedAt}}
 };
 
 // ======================== UI渲染 ========================
 const UI = {
+  formatPercent(value) {
+    const n = parseFloat(value);
+    if (value == null || value === '' || value === '--' || isNaN(n)) {
+      return { className: '', text: '--' };
+    }
+    return {
+      className: n > 0 ? 'up' : n < 0 ? 'down' : '',
+      text: (n > 0 ? '↑ ' : n < 0 ? '↓ ' : '') + n.toFixed(2) + '%'
+    };
+  },
+
   renderFundList() {
     const container = $('#fundList');
     const empty = $('#emptyState');
@@ -1716,16 +1818,15 @@ const UI = {
           </div>
         </div>
         <div class="fund-card-detail">
-          <div class="detail-row">
-            <span class="detail-label">${val.gszzl != null && val.gszzl !== '' && val.gszzl !== '--' ? '估算涨幅' : '实际涨幅 (盘后)'}</span>
-            <span class="detail-value ${(function() { const v = val.gszzl != null && val.gszzl !== '' && val.gszzl !== '--' ? val.gszzl : val.actualChange; if (v == null || v === '' || v === '--') return ''; const n = parseFloat(v); if (isNaN(n)) return ''; return n > 0 ? 'up' : n < 0 ? 'down' : ''; })()}">${(function() { const v = val.gszzl != null && val.gszzl !== '' && val.gszzl !== '--' ? val.gszzl : val.actualChange; if (v == null || v === '' || v === '--') return '--'; const n = parseFloat(v); if (isNaN(n)) return '--'; return (n > 0 ? '↑ ' : n < 0 ? '↓ ' : '') + n.toFixed(2) + '%'; })()}</span>
-          </div>
-          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
-            <button class="detail-save-btn" data-action="delete" data-code="${fund.code}" style="background:#ff4d4f">🗑 删除</button>
-          </div>
+          <div class="trend-content" data-trend-code="${fund.code}"></div>
         </div>
       </div>`;
     }).join('');
+
+    // 重新渲染（含 30 秒自动刷新）后，恢复所有展开卡片的区间走势。
+    requestAnimationFrame(() => {
+      AppState.funds.filter(fund => fund._expanded).forEach(fund => this.loadTrendForCard(fund.code));
+    });
 
   },
 
@@ -1762,33 +1863,39 @@ const UI = {
 	  // === 趨勢圖 (內嵌於卡片詳情) ===
 
   loadTrendForCard(code) {
-    const detailEl = document.querySelector('.fund-card[data-code="' + code + '"] .fund-card-detail');
-    if (!detailEl) return;
+    const trendEl = document.querySelector('.fund-card[data-code="' + code + '"] .trend-content');
+    if (!trendEl) return;
 
     const cached = AppState.trendCache[code];
-    this._renderTrendUI(detailEl, code, !!cached);
+    const period = AppState.trendPeriods[code] || '1m';
+    this._renderTrendUI(trendEl, code, !!cached, period);
 
     if (cached && cached.data && cached.data.length > 0) {
-      this._renderTrendChartInCard(detailEl, cached.data, '1m');
-    } else {
+      this._renderTrendChartInCard(trendEl, cached.data, period);
+    } else if (!AppState.trendLoading[code]) {
+      AppState.trendLoading[code] = true;
       FundData.fetchTrend(code).then(result => {
         AppState.trendCache[code] = { name: result.name, data: result.data, fetchedAt: Date.now() };
-        this._renderTrendUI(detailEl, code, true);
-        this._renderTrendChartInCard(detailEl, result.data, '1m');
+        const currentTrendEl = document.querySelector('.fund-card[data-code="' + code + '"] .trend-content');
+        if (currentTrendEl) {
+          this._renderTrendUI(currentTrendEl, code, true, period);
+          this._renderTrendChartInCard(currentTrendEl, result.data, period);
+        }
       }).catch(err => {
         console.warn(err.message);
-        this._showTrendError(detailEl);
-      });
+        const currentTrendEl = document.querySelector('.fund-card[data-code="' + code + '"] .trend-content');
+        if (currentTrendEl) this._showTrendError(currentTrendEl);
+      }).finally(() => { delete AppState.trendLoading[code]; });
     }
   },
 
-  _renderTrendUI(detailEl, code, hasData) {
+  _renderTrendUI(detailEl, code, hasData, activePeriod = '1m') {
     detailEl.innerHTML = '\n' +
       '<div class="trend-period-selector" data-trend-code="' + code + '">\n' +
-      '  <button class="trend-period-btn active" data-period="1m">近一月</button>\n' +
-      '  <button class="trend-period-btn" data-period="6m">近半年</button>\n' +
-      '  <button class="trend-period-btn" data-period="1y">近一年</button>\n' +
-      '  <button class="trend-period-btn" data-period="3y">近三年</button>\n' +
+      '  <button class="trend-period-btn' + (activePeriod === '1m' ? ' active' : '') + '" data-period="1m">近一月</button>\n' +
+      '  <button class="trend-period-btn' + (activePeriod === '6m' ? ' active' : '') + '" data-period="6m">近半年</button>\n' +
+      '  <button class="trend-period-btn' + (activePeriod === '1y' ? ' active' : '') + '" data-period="1y">近一年</button>\n' +
+      '  <button class="trend-period-btn' + (activePeriod === '3y' ? ' active' : '') + '" data-period="3y">近三年</button>\n' +
       '</div>\n' +
       '<div class="trend-chart-wrap" id="trendChartWrap_' + code + '" style="' + (hasData ? '' : 'display:none') + '">\n' +
       '  <canvas id="trendCanvas_' + code + '"></canvas>\n' +
@@ -2028,6 +2135,7 @@ const App = {
       // 趋势图时间段切换
       if (e.target.classList.contains('trend-period-btn')) {
         const period = e.target.dataset.period;
+        AppState.trendPeriods[code] = period;
         // 更新按钮选中态
         const selector = e.target.closest('.trend-period-selector');
         selector.querySelectorAll('.trend-period-btn').forEach(b => b.classList.remove('active'));
@@ -2052,10 +2160,6 @@ const App = {
           fund._expanded = !fund._expanded;
           Storage.saveFunds(AppState.funds);
           UI.renderFundList();
-          // 展开时加载趋势图
-          if (fund._expanded) {
-            UI.loadTrendForCard(code);
-          }
         }
       }
     });
@@ -2089,13 +2193,6 @@ const App = {
       const settings = Storage.getSettings();
       settings.proxyUrl = e.target.value.trim();
       Storage.saveSettings(settings);
-    });
-
-    $('#taiyiApiKey').addEventListener('change', (e) => {
-      const settings = Storage.getSettings();
-      settings.taiyiApiKey = e.target.value.trim();
-      Storage.saveSettings(settings);
-      toast(settings.taiyiApiKey ? '太一数据 API Key 已保存' : '已清除太一数据 API Key');
     });
 
     // 导出
@@ -2227,7 +2324,6 @@ const App = {
   openSettingsModal() {
     const settings = Storage.getSettings();
     $('#proxyUrl').value = settings.proxyUrl || '';
-    $('#taiyiApiKey').value = settings.taiyiApiKey || '';
     $('#toggleAutoRefresh').className = 'toggle' + (settings.autoRefresh ? ' on' : '');
     $('#settingsModal').style.display = 'flex';
   },

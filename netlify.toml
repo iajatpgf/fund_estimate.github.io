@@ -2,6 +2,30 @@
 # 将项目部署到 Netlify 后，此文件会自动配置代理，解决跨域问题
 
 [[redirects]]
+  from = "/api/fundinfo"
+  to = "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/fundposition"
+  to = "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/stockquotes"
+  to = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/sinaestimate"
+  to = "https://stock.finance.sina.com.cn/fundInfo/api/openapi.php/FdFundService.getEstimateNetworthPic"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/fundgz/:code"
   to = "https://fundgz.1234567.com.cn/js/:code.js"
   status = 200

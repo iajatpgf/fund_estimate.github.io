@@ -1,6 +1,22 @@
 {
   "rewrites": [
     {
+      "source": "/api/fundinfo",
+      "destination": "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo"
+    },
+    {
+      "source": "/api/fundposition",
+      "destination": "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition"
+    },
+    {
+      "source": "/api/stockquotes",
+      "destination": "https://push2.eastmoney.com/api/qt/ulist.np/get"
+    },
+    {
+      "source": "/api/sinaestimate",
+      "destination": "https://stock.finance.sina.com.cn/fundInfo/api/openapi.php/FdFundService.getEstimateNetworthPic"
+    },
+    {
       "source": "/api/fundgz/:code",
       "destination": "https://fundgz.1234567.com.cn/js/:code.js"
     },

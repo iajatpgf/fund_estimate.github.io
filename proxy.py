@@ -68,6 +68,94 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({'error': str(e)}, ensure_ascii=False).encode('utf-8'))
             return
 
+        # 东方财富移动端实时估值（与 funds-3.4.4 使用的接口一致）
+        if self.path.startswith('/api/fundinfo') or self.path.startswith('/fundinfo'):
+            parsed = urllib.parse.urlparse(self.path)
+            query = parsed.query
+            url = 'https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo'
+            if query:
+                url += '?' + query
+            try:
+                req = urllib.request.Request(url, headers={
+                    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36',
+                    'Referer': 'https://fund.eastmoney.com/'
+                })
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', '*')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}, ensure_ascii=False).encode('utf-8'))
+            return
+
+        # 公开披露持仓与股票行情：用于本地计算“持仓模拟涨幅”。
+        if self.path.startswith('/api/fundposition') or self.path.startswith('/fundposition') or self.path.startswith('/api/stockquotes') or self.path.startswith('/stockquotes'):
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path.endswith('fundposition'):
+                url = 'https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition'
+            else:
+                url = 'https://push2.eastmoney.com/api/qt/ulist.np/get'
+            if parsed.query:
+                url += '?' + parsed.query
+            try:
+                req = urllib.request.Request(url, headers={
+                    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36',
+                    'Referer': 'https://fund.eastmoney.com/'
+                })
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', '*')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}, ensure_ascii=False).encode('utf-8'))
+            return
+
+        # 新浪基金估值（v3.4.4 插件实际使用的盘中估算接口）
+        if self.path.startswith('/api/sinaestimate') or self.path.startswith('/sinaestimate'):
+            parsed = urllib.parse.urlparse(self.path)
+            url = 'https://stock.finance.sina.com.cn/fundInfo/api/openapi.php/FdFundService.getEstimateNetworthPic'
+            if parsed.query:
+                url += '?' + parsed.query
+            try:
+                req = urllib.request.Request(url, headers={
+                    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36',
+                    'Referer': 'https://finance.sina.com.cn/'
+                })
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', '*')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}, ensure_ascii=False).encode('utf-8'))
+            return
+
         # 基金列表代理
         if self.path.startswith('/fundlist'):
             url = 'http://fund.eastmoney.com/js/fundcode_search.js'
